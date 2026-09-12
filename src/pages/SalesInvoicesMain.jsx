@@ -100,12 +100,12 @@ function SalesInvoicesMain() {
                 <table className="min-w-full">
                     <thead className="sticky top-0 bg-gray-50 border-b border-gray-300 z-10">
                         <tr className="text-center text-xs font-semibold text-gray-700">
-                            <th className="w-[10%] px-4 py-3">SI ID</th>
-                            <th className="w-[10%] px-4 py-3">Date Issued</th>
-                            <th className="w-[20%] px-4 py-3 text-left">Customer</th>
-                            <th className="px-4 py-3 text-left">Details</th>
-                            <th className="w-[12%] px-4 py-3">Amount</th>
-                            <th className="w-[8%] px-4 py-3">Actions</th>
+                            <th className="w-[10%] px-4 py-2">SI ID</th>
+                            <th className="w-[10%] px-4 py-2">Date</th>
+                            <th className="w-[20%] px-4 py-2 text-left">Customer</th>
+                            <th className="px-4 py-2 text-left">Details</th>
+                            <th className="w-[12%] px-4 py-2">Amount</th>
+                            <th className="w-[8%] px-4 py-2">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">

@@ -49,7 +49,7 @@ function DeliveryReceiptsMain() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {/* Sample Saved Entry Row */}
-                        <tr className="text-center hover:bg-[#F4F8FB]">
+                        <tr className="text-center border-b border-gray-200 hover:bg-[#F4F8FB]">
                             <td className="w-[9.5%]px-2 py-2">DR# 001</td>
                             <td className="w-[9.5%] px-2 py-2">2026-A01-001</td>
                             <td className="px-2 py-2">09/10/2026</td>
@@ -71,96 +71,6 @@ function DeliveryReceiptsMain() {
                                     className="far fa-eye cursor-pointer ml-2 hover:text-[#5FA5DA]" 
                                     title="See details"
                                     onClick={() => navigate('/delivery-receipts-details')}
-                                ></i>
-                            </td>
-                        </tr>
-
-                        {/* Input Row */}
-                        <tr id="inputRow" className="text-center border-b border-gray-200 hover:bg-[#F4F8FB]">
-                            <td className="w-[9.5%] px-2 py-2">
-                                <input
-                                    type="text"
-                                    value={drIdInput}
-                                    onChange={(e) => setDrIdInput(e.target.value)}
-                                    placeholder="Enter DR ID"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="w-[9.5%] px-2 py-2">
-                                <input
-                                    type="text"
-                                    value={ciIdInput}
-                                    onChange={(e) => setCiIdInput(e.target.value)}
-                                    placeholder="Enter CI ID"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="w-[10%] px-2 py-2">
-                                <input
-                                    type="date"
-                                    value={dateInput}
-                                    onChange={(e) => setDateInput(e.target.value)}
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-2 py-2 text-left">
-                                <input
-                                    type="text"
-                                    value={customerInput}
-                                    onChange={(e) => setCustomerInput(e.target.value)}
-                                    placeholder="Customer Name"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-2 py-2 text-left">
-                                <input
-                                    type="text"
-                                    value={addressInput}
-                                    onChange={(e) => setAddressInput(e.target.value)}
-                                    placeholder="Address"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="w-[10%] px-2 py-2 text-left">
-                                <input
-                                    type="text"
-                                    value={receivedByInput}
-                                    onChange={(e) => setReceivedByInput(e.target.value)}
-                                    placeholder="Receiver Name"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="w-[8%] px-2 py-2">
-                                <input
-                                    type="number"
-                                    step="any"
-                                    value={amountInput}
-                                    onChange={(e) => setAmountInput(e.target.value)}
-                                    placeholder="0.00"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="w-[9%] px-2 py-2">
-                                <select
-                                    value={paymentTypeInput}
-                                    onChange={(e) => setPaymentTypeInput(e.target.value)}
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none cursor-pointer"
-                                >
-                                    <option value="cash">Cash</option>
-                                    <option value="bank_transfer">Bank Transfer</option>
-                                    <option value="cheque">Cheque</option>
-                                </select>
-                            </td>
-                            <td className="w-[9.5%] px-2 py-2">
-                                <DeliveryReceiptStatusSelector 
-                                    initialStatus={statusInput} 
-                                    onChange={(newStatus) => setStatusInput(newStatus)} 
-                                />
-                            </td>
-                            <td className="w-[6%] px-2 py-2 text-md">
-                                <i 
-                                    className="far fa-check cursor-pointer hover:scale-110 transition-transform" 
-                                    title="Save delivery receipt"
                                 ></i>
                             </td>
                         </tr>

@@ -35,7 +35,7 @@ function CollectionReceiptsMain() {
                         <tr>
                             <th className="w-[9.5%] px-4 py-2">CR ID</th>
                             <th className="w-[9.5%] px-4 py-2">CI ID</th>
-                            <th className="w-[8%] px-4 py-2">Date Issued</th>
+                            <th className="w-[8%] px-4 py-2">Date</th>
                             <th className="px-4 py-2 text-left">Customer</th>
                             <th className="w-[10%] px-4 py-2">Amount</th>
                             <th className="w-[10%] px-4 py-2">Payment Type</th>
@@ -45,7 +45,7 @@ function CollectionReceiptsMain() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {/* Sample Saved Entry Row */}
-                        <tr className="text-center hover:bg-[#F4F8FB]">
+                        <tr className="text-center border-b border-gray-200 hover:bg-[#F4F8FB]">
                             <td className="px-4 py-2">CR# 001</td>
                             <td className="px-4 py-2">2026-A01-001</td>
                             <td className="px-4 py-2">09/10/2026</td>
@@ -65,78 +65,6 @@ function CollectionReceiptsMain() {
                                     className="far fa-eye cursor-pointer ml-2 hover:text-[#5FA5DA]" 
                                     title="See details"
                                     onClick={() => navigate('/collection-receipts-details')}
-                                ></i>
-                            </td>
-                        </tr>
-
-                        {/* Input Row */}
-                        <tr id="inputRow" className="text-center border-b border-gray-200 hover:bg-[#F4F8FB]">
-                            <td className="px-4 py-2">
-                                <input
-                                    type="text"
-                                    value={crIdInput}
-                                    onChange={(e) => setCrIdInput(e.target.value)}
-                                    placeholder="Enter CR ID"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-4 py-2">
-                                <input
-                                    type="text"
-                                    value={ciIdInput}
-                                    onChange={(e) => setCiIdInput(e.target.value)}
-                                    placeholder="Enter CI ID"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-4 py-2">
-                                <input
-                                    type="date"
-                                    value={dateIssuedInput}
-                                    onChange={(e) => setDateIssuedInput(e.target.value)}
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-4 py-2 text-left">
-                                <input
-                                    type="text"
-                                    value={customerInput}
-                                    onChange={(e) => setCustomerInput(e.target.value)}
-                                    placeholder="Enter Customer Name"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-4 py-2">
-                                <input
-                                    type="number"
-                                    step="any"
-                                    value={amountInput}
-                                    onChange={(e) => setAmountInput(e.target.value)}
-                                    placeholder="0.00"
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none"
-                                />
-                            </td>
-                            <td className="px-4 py-2">
-                                <select
-                                    value={paymentTypeInput}
-                                    onChange={(e) => setPaymentTypeInput(e.target.value)}
-                                    className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 focus:outline-none cursor-pointer"
-                                >
-                                    <option value="cash">Cash</option>
-                                    <option value="bank_transfer">Bank Transfer</option>
-                                    <option value="cheque">Cheque</option>
-                                </select>
-                            </td>
-                            <td className="px-4 py-2">
-                                <CollectionReceiptStatusSelector 
-                                    initialStatus={statusInput} 
-                                    onChange={(newStatus) => setStatusInput(newStatus)} 
-                                />
-                            </td>
-                            <td className="px-4 py-2 text-md">
-                                <i 
-                                    className="far fa-check cursor-pointer hover:scale-110 transition-transform" 
-                                    title="Save collection receipt"
                                 ></i>
                             </td>
                         </tr>

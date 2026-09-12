@@ -202,7 +202,7 @@ function SalesInvoicesDetails() {
                 </div>
 
                 {/* Order Details Container */}
-                <div className="flex-1 min-h-[220px] flex gap-4 items-stretch">
+                <div className="flex-1 min-h-55 flex gap-4 items-stretch">
                     <div className="flex flex-col gap-2 w-1/2 h-full">
                         <label className="text-[0.8vw] shrink-0">Order Details (Legacy)</label>
                         <textarea 
