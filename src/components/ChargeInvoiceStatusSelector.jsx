@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const STATUSES = {
   paid: { label: 'Paid', bg: '#22E11F', text: '#FFFFFF' },
-  partially_paid: { label: 'Partially Paid', bg: '#F5E12A', text: '#FFFFFF' },
+  partial: { label: 'Partial Payment', bg: '#F5E12A', text: '#FFFFFF' },
   unpaid: { label: 'Unpaid', bg: '#DC1D10', text: '#FFFFFF' },
+  cancelled: { label: 'Cancelled', bg: '#8B5CF6', text: '#FFFFFF' },
 };
 
-export default function ChargeInvoiceStatusSelector({ initialStatus = 'paid', onChange }) {
-  const [status, setStatus] = useState(initialStatus);
+export default function ChargeInvoiceStatusSelector({ initialStatus = 'paid', value, onChange }) {
+  const activeStatus = value !== undefined ? value : initialStatus;
+  const [status, setStatus] = useState(activeStatus);
+
+  useEffect(() => {
+    setStatus(activeStatus);
+  }, [activeStatus]);
 
   const handleSelect = (e) => {
     const selected = e.target.value;
@@ -26,7 +32,6 @@ export default function ChargeInvoiceStatusSelector({ initialStatus = 'paid', on
         color: current.text,
         padding: '2px 12px',
         borderRadius: '20px',
-        fontWeight: 400,
         fontSize: '0.8vw',
         border: 'none',
         outline: 'none',
@@ -34,9 +39,9 @@ export default function ChargeInvoiceStatusSelector({ initialStatus = 'paid', on
         transition: 'background-color 0.2s ease',
       }}
     >
-      {Object.entries(STATUSES).map(([key, value]) => (
+      {Object.entries(STATUSES).map(([key, item]) => (
         <option key={key} value={key} style={{ backgroundColor: '#fff', color: '#000' }}>
-          {value.label}
+          {item.label}
         </option>
       ))}
     </select>

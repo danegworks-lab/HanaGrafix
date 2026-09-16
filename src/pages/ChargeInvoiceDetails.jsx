@@ -1,77 +1,141 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import StatusSelector from '../components/ChargeInvoiceStatusSelector';
 import CollectionReceiptBlock from '../components/CollectionReceiptBlock';
 import ChargeInvoiceDetailsModal from '../components/ChargeInvoiceDetailsModal';
 import CreateDeliveryReceiptModal from '../components/CreateDeliveryReceiptModal';
 import CreateCollectionReceiptModal from '../components/CreateCollectionReceiptModal';
 import DeliveryReceiptBlock from '../components/DeliveryReceiptBlock';
+import { chargeInvoiceService } from '../services/chargeInvoiceService';
+import { receiptService } from '../services/receiptService';
 
 function ChargeInvoiceDetails() {
-    // Registered customer directory
-    const [existingCustomers] = useState([
-        'Davao Medical School Foundation',
-        'Ateneo de Davao University',
-        'Southern Philippines Medical Center'
-    ]);
+    const { id: ciIdentifier } = useParams();
+    const navigate = useNavigate();
 
-    // Customer form field state
+    // Loading & Save States
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+
+    // Invoice Header States
+    const [invoiceDbId, setInvoiceDbId] = useState(null);
+    const [ciNumber, setCiNumber] = useState('');
     const [customerName, setCustomerName] = useState('');
-    const [isCreateAccountPromptOpen, setIsCreateAccountPromptOpen] = useState(false);
+    const [dateIssued, setDateIssued] = useState('');
+    const [status, setStatus] = useState('unpaid');
+    const [legacyOrderDetails, setLegacyOrderDetails] = useState('');
+    const [discountAmount, setDiscountAmount] = useState(0.00);
+    const [legacyAmount, setLegacyAmount] = useState(0.00);
 
-    // Dynamic state for items table
-    const [items, setItems] = useState([
-        { name: 'Item 1', quantity: 10, price: 5.00 },
-        { name: 'Item 2', quantity: 5, price: 10.00 }
-    ]);
+    // Items & Receipts States
+    const [items, setItems] = useState([]);
+    const [collectionReceipts, setCollectionReceipts] = useState([]);
+    const [deliveryReceipts, setDeliveryReceipts] = useState([]);
 
-    // Dynamic state for collection receipts
-    const [collectionReceipts, setCollectionReceipts] = useState([
-        { id: 1, crNumber: 'CR# 001', dateIssued: '01/01/2026', initialStatus: 'full' },
-        { id: 2, crNumber: 'CR# 002', dateIssued: '01/15/2026', initialStatus: 'partial' }
-    ]);
-
-    // Dynamic state for delivery receipts
-    const [deliveryReceipts, setDeliveryReceipts] = useState([
-        { id: 1, drNumber: 'DR# 001', dateIssued: '01/01/2026', initialStatus: 'completed' },
-        { id: 2, drNumber: 'DR# 002', dateIssued: '01/15/2026', initialStatus: 'cancelled' }
-    ]);
-
-    // Modal state controllers
+    // Modal Controllers
     const [isItemModalOpen, setIsItemModalOpen] = useState(false);
     const [isDeliveryReceiptModalOpen, setIsDeliveryReceiptModalOpen] = useState(false);
     const [isCollectionReceiptModalOpen, setIsCollectionReceiptModalOpen] = useState(false);
 
-    // Save check for unrecognized customer names
-    const handleSaveInvoice = () => {
+    useEffect(() => {
+        if (ciIdentifier) {
+            loadInvoiceDetails(ciIdentifier);
+        } else {
+            setLoading(false);
+        }
+    }, [ciIdentifier]);
+
+    const loadInvoiceDetails = async (identifier) => {
+        try {
+            setLoading(true);
+            const data = await chargeInvoiceService.getChargeInvoiceById(identifier);
+            const inv = data?.invoice || data;
+
+            if (!inv) throw new Error(`Charge Invoice "${identifier}" not found.`);
+
+            setInvoiceDbId(inv.id || null);
+            setCiNumber(inv.ciNumber || '');
+            setCustomerName(inv.customerName || '');
+            setDateIssued(inv.dateIssued || '');
+            setStatus(inv.status || 'unpaid');
+            setLegacyOrderDetails(inv.legacyOrderDetails || '');
+            setDiscountAmount(Number(inv.discountAmount) || 0.00);
+            setLegacyAmount(Number(inv.amountTotal || inv.subtotal) || 0.00);
+            setItems(inv.items || []);
+            setDeliveryReceipts(data.deliveryReceipts || inv.deliveryReceipts || []);
+            setCollectionReceipts(data.collectionReceipts || inv.collectionReceipts || []);
+        } catch (err) {
+            console.error('Error loading invoice details:', err);
+            alert(`Failed to load invoice details: ${err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Calculate Subtotal & Net Total
+    const calculatedSubtotal = items.length > 0
+        ? items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.price)), 0)
+        : legacyAmount;
+
+    const totalAmount = Math.max(0, calculatedSubtotal - Number(discountAmount));
+
+    // Save/Update to Supabase
+    const handleSaveInvoice = async () => {
         if (!customerName.trim()) {
             alert('Please enter a Customer / Company Name before saving.');
             return;
         }
 
-        const customerExists = existingCustomers.some(
-            (name) => name.toLowerCase() === customerName.trim().toLowerCase()
-        );
+        try {
+            setSaving(true);
+            const hasItemized = items && items.length > 0;
 
-        if (!customerExists) {
-            setIsCreateAccountPromptOpen(true);
-        } else {
-            executeSaveInvoice();
+            const payload = {
+                ciNumber,
+                customerName,
+                dateIssued,
+                status,
+                legacyOrderDetails: hasItemized ? null : (legacyOrderDetails.trim() || null),
+                discountAmount: Number(discountAmount) || 0.00,
+                // Explicitly pass calculated gross subtotal so legacy_amount is not wiped out
+                subtotal: calculatedSubtotal,
+                items: hasItemized ? items : []
+            };
+
+            if (invoiceDbId || ciIdentifier) {
+                const targetId = invoiceDbId || ciIdentifier;
+                await chargeInvoiceService.updateChargeInvoice(targetId, payload);
+                alert('Invoice updated successfully!');
+            } else {
+                const created = await chargeInvoiceService.createChargeInvoice(payload);
+                alert('Invoice created successfully!');
+                navigate(`/charge-invoice-details/${created.ciNumber || created.id}`);
+            }
+        } catch (err) {
+            console.error('Error saving invoice:', err);
+            alert(`Failed to save invoice: ${err.message}`);
+        } finally {
+            setSaving(false);
         }
     };
 
-    const executeSaveInvoice = () => {
-        console.log('Invoice saved:', { customerName, items });
-        alert('Invoice saved successfully!');
+    // Delete Invoice
+    const handleDeleteInvoice = async () => {
+        const targetId = invoiceDbId || ciIdentifier;
+        if (!targetId) return;
+        if (!window.confirm(`Are you sure you want to delete Invoice ${ciNumber}? This cannot be undone.`)) return;
+
+        try {
+            await chargeInvoiceService.deleteChargeInvoice(targetId);
+            alert('Invoice deleted successfully!');
+            navigate('/charge-invoices');
+        } catch (err) {
+            console.error('Error deleting invoice:', err);
+            alert('Failed to delete invoice.');
+        }
     };
 
-    const handleConfirmAccountCreation = () => {
-        console.log('Registering new customer account:', customerName);
-        // Backend account provisioning logic goes here...
-
-        setIsCreateAccountPromptOpen(false);
-        executeSaveInvoice();
-    };
-
+    // Itemized Modal Save Handler
     const handleSaveItems = (newItems) => {
         const sanitized = newItems.map((item) => ({
             name: item.name,
@@ -79,224 +143,300 @@ function ChargeInvoiceDetails() {
             price: Number(item.price) || 0
         }));
         setItems(sanitized);
+
+        // When itemized items are added, clear legacy order text to transition to the itemized table
+        if (sanitized.length > 0) {
+            setLegacyOrderDetails('');
+        }
     };
 
-    const handleCreateDeliveryReceipt = (formData) => {
-        const formattedDate = formData.dateIssued 
-            ? new Date(formData.dateIssued).toLocaleDateString('en-US') 
-            : new Date().toLocaleDateString('en-US');
-
-        const newReceipt = {
-            id: Date.now(),
-            crNumber: `DR# ${String(deliveryReceipts.length + 1).padStart(3, '0')}`,
-            dateIssued: formattedDate,
-            initialStatus: formData.paymentType === 'cash' ? 'full' : 'partial',
-            ...formData
-        };
-
-        setDeliveryReceipts((prev) => [...prev, newReceipt]);
+    // Create Delivery Receipt
+    const handleCreateDeliveryReceipt = async (formData) => {
+        const targetId = invoiceDbId || ciIdentifier;
+        if (!targetId) {
+            alert('Please save the invoice before creating receipts.');
+            return;
+        }
+        try {
+            const receipt = await receiptService.createDeliveryReceipt({
+                ...formData,
+                chargeInvoiceId: targetId
+            });
+            setDeliveryReceipts((prev) => [...prev, receipt]);
+            setIsDeliveryReceiptModalOpen(false);
+        } catch (err) {
+            console.error('Error creating Delivery Receipt:', err);
+            alert('Failed to create Delivery Receipt.');
+        }
     };
 
-    const handleCreateCollectionReceipt = (formData) => {
-        const formattedDate = formData.dateIssued 
-            ? new Date(formData.dateIssued).toLocaleDateString('en-US') 
-            : new Date().toLocaleDateString('en-US');
-
-        const newReceipt = {
-            id: Date.now(),
-            crNumber: `CR# ${String(collectionReceipts.length + 1).padStart(3, '0')}`,
-            dateIssued: formattedDate,
-            initialStatus: formData.paymentType === 'cash' ? 'full' : 'partial',
-            ...formData
-        };
-
-        setCollectionReceipts((prev) => [...prev, newReceipt]);
+    // Create Collection Receipt
+    const handleCreateCollectionReceipt = async (formData) => {
+        const targetId = invoiceDbId || ciIdentifier;
+        if (!targetId) {
+            alert('Please save the invoice before creating receipts.');
+            return;
+        }
+        try {
+            const receipt = await receiptService.createCollectionReceipt({
+                ...formData,
+                chargeInvoiceId: targetId
+            });
+            setCollectionReceipts((prev) => [...prev, receipt]);
+            setIsCollectionReceiptModalOpen(false);
+        } catch (err) {
+            console.error('Error creating Collection Receipt:', err);
+            alert('Failed to create Collection Receipt.');
+        }
     };
+
+    if (loading) {
+        return (
+            <div className="flex h-screen items-center justify-center text-gray-500 text-[1vw]">
+                Loading invoice details...
+            </div>
+        );
+    }
+
+    // Determine layout: Legacy Text Area vs Itemized Table
+    const hasLegacyDetails = Boolean(legacyOrderDetails && legacyOrderDetails.trim());
 
     return (
         <div className="flex flex-col h-screen">
+            {/* Header */}
             <div id="pageHeader" className="flex flex-col justify-between shrink-0 p-6">
-                <div className="flex items-center justify-between ">
+                <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <h1>Invoice #2026-A01-001</h1>
-                        <StatusSelector />
+                        <h1 className="text-xl font-bold">Invoice #{ciNumber || 'New Invoice'}</h1>
+                        <StatusSelector value={status} initialStatus={status} onChange={setStatus} />
                     </div>
                     <div className="flex items-center gap-2">
-                        <button 
+                        <button
                             type="button"
+                            disabled={saving}
                             onClick={handleSaveInvoice}
-                            className="flex items-center gap-2 border-2 border-[#22E11F] text-[#22E11F] text-[0.8vw] px-2.5 py-0.5 rounded-full hover:bg-[#22E11F] hover:text-white transition-colors cursor-pointer font-semibold"
+                            className="flex items-center gap-2 border-2 border-[#22E11F] text-[#22E11F] text-[0.8vw] px-3 py-1 rounded-full hover:bg-[#22E11F] hover:text-white transition-colors cursor-pointer font-semibold disabled:opacity-50"
                         >
                             <i className="far fa-check"></i>
-                            Save
+                            {saving ? 'Saving...' : 'Save'}
                         </button>
-                        <button className="flex items-center gap-2 border-2 border-[#DC1D10] text-[#DC1D10] text-[0.8vw] px-2.5 py-0.5 rounded-full hover:bg-[#DC1D10] hover:text-white transition-colors cursor-pointer">
-                            <i className="far fa-trash"></i>
-                            Delete
-                        </button>
+                        {ciIdentifier && (
+                            <button
+                                type="button"
+                                onClick={handleDeleteInvoice}
+                                className="flex items-center gap-2 border-2 border-[#DC1D10] text-[#DC1D10] text-[0.8vw] px-3 py-1 rounded-full hover:bg-[#DC1D10] hover:text-white transition-colors cursor-pointer"
+                            >
+                                <i className="far fa-trash"></i>
+                                Delete
+                            </button>
+                        )}
                     </div>
                 </div>
-                <label className="text-[0.6vw] pb-2 border-b-2">(Year-Pad-No.)</label>   
+                <label className="text-[0.6vw] pb-2 border-b-2 text-gray-400">(Year-Pad-No.)</label>
             </div>
 
+            {/* Form Fields */}
             <div id="contentContainer" className="flex-1 flex flex-col gap-4 overflow-y-auto px-6 pt-0 pb-6">
                 <div className="flex gap-4 shrink-0">
                     <div className="flex flex-col gap-2 w-1/2">
-                        <label className="text-[0.8vw]">Company / Organization / Customer:</label>
-                        <input 
-                            type="text" 
+                        <label className="text-[0.8vw] font-semibold text-gray-700">Company / Customer:</label>
+                        <input
+                            type="text"
                             value={customerName}
                             onChange={(e) => setCustomerName(e.target.value)}
                             placeholder="Enter customer name..."
-                            className="border border-gray-300 rounded-md p-2 text-[0.8vw] focus:outline-none" 
+                            className="border border-gray-300 rounded-md p-2 text-[0.8vw] focus:outline-[#5FA5DA]"
                         />
                     </div>
-                    <div className="flex flex-col gap-2 w-1/2">
-                        <label className="text-[0.8vw]">Date Issued:</label>
-                        <input type="date" className="border border-gray-300 rounded-md p-2 text-[0.8vw]" />
+                    <div className="flex flex-col gap-2 w-1/4">
+                        <label className="text-[0.8vw] font-semibold text-gray-700">Date Issued:</label>
+                        <input
+                            type="date"
+                            value={dateIssued}
+                            onChange={(e) => setDateIssued(e.target.value)}
+                            className="border border-gray-300 rounded-md p-2 text-[0.8vw] focus:outline-[#5FA5DA]"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-2 w-1/4">
+                        <label className="text-[0.8vw] font-semibold text-gray-700">Discount Amount (₱):</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            value={discountAmount}
+                            onChange={(e) => setDiscountAmount(e.target.value)}
+                            className="border border-gray-300 rounded-md p-2 text-[0.8vw] focus:outline-[#5FA5DA]"
+                        />
                     </div>
                 </div>
 
+                {/* Conditional Order Details: Legacy Textarea OR Itemized Table */}
                 <div className="flex-1 min-h-0 flex gap-4 items-stretch">
-                    <div className="flex flex-col gap-2 w-1/2 h-full">
-                        <label className="text-[0.8vw] shrink-0">Order Details (Legacy)</label>
-                        <textarea className="flex-1 h-full w-full border border-gray-300 rounded-md p-2 text-[0.8vw] resize-none focus:outline-none" />
-                    </div>
-                    <div className="flex flex-col gap-2 w-1/2 h-full">
-                        <div className="flex items-center justify-between shrink-0">
-                            <label className="text-[0.8vw]">Order Details:</label>
-                            <button
-                                type="button"
-                                onClick={() => setIsItemModalOpen(true)}
-                                className="px-2.5 py-0.5 text-[0.75vw] rounded-full border border-[#5FA5DA] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors cursor-pointer font-medium"
-                            >
-                                + Edit Itemized Details
-                            </button>
+                    {hasLegacyDetails ? (
+                        /* Legacy Mode: Full-Width Text Area with option to convert */
+                        <div className="flex flex-col gap-2 h-full w-full">
+                            <div className="flex items-center justify-between shrink-0">
+                                <label className="text-[0.8vw] font-semibold text-gray-700">
+                                    Order Details (Legacy Note)
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsItemModalOpen(true)}
+                                    className="px-2.5 py-0.5 text-[0.75vw] rounded-full border border-[#5FA5DA] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors cursor-pointer font-medium"
+                                >
+                                    + Convert to Itemized Details
+                                </button>
+                            </div>
+                            <textarea
+                                value={legacyOrderDetails}
+                                onChange={(e) => setLegacyOrderDetails(e.target.value)}
+                                placeholder="Type order notes, descriptions, or terms..."
+                                className="flex-1 h-full w-full border border-gray-300 rounded-md p-3 text-[0.8vw] resize-none focus:outline-[#5FA5DA]"
+                            />
                         </div>
+                    ) : (
+                        /* Itemized Mode: Full-Width Table */
+                        <div className="flex flex-col gap-2 h-full w-full">
+                            <div className="flex items-center justify-between shrink-0">
+                                <label className="text-[0.8vw] font-semibold text-gray-700">
+                                    Itemized Breakdown:
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsItemModalOpen(true)}
+                                    className="px-2.5 py-0.5 text-[0.75vw] rounded-full border border-[#5FA5DA] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors cursor-pointer font-medium"
+                                >
+                                    + Edit Items
+                                </button>
+                            </div>
 
-                        <div className="flex-1 h-full border border-gray-300 rounded-md overflow-y-auto">
-                            <table className="w-full border-collapse">
-                                <thead className="sticky top-0 z-10">
-                                    <tr className="bg-gray-50 border-b border-gray-300">
-                                        <th className="p-2 text-left text-[0.8vw]">Item</th>
-                                        <th className="p-2 text-center text-[0.8vw]">Quantity</th>
-                                        <th className="p-2 text-right text-[0.8vw]">Unit Price</th>
-                                        <th className="p-2 text-right text-[0.8vw]">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200">
-                                    {items.map((item, index) => (
-                                        <tr key={index}>
-                                            <td className="p-2 text-left text-[0.8vw]">{item.name || '—'}</td>
-                                            <td className="p-2 text-center text-[0.8vw]">{item.quantity}</td>
-                                            <td className="p-2 text-right text-[0.8vw]">₱{Number(item.price).toFixed(2)}</td>
-                                            <td className="p-2 text-right text-[0.8vw]">
-                                                ₱{(Number(item.quantity) * Number(item.price)).toFixed(2)}
-                                            </td>
+                            <div className="flex-1 h-full border border-gray-300 rounded-md overflow-y-auto">
+                                <table className="w-full border-collapse">
+                                    <thead className="sticky top-0 z-10">
+                                        <tr className="bg-gray-50 border-b border-gray-300">
+                                            <th className="p-2 text-left text-[0.8vw]">Item</th>
+                                            <th className="p-2 text-center text-[0.8vw]">Quantity</th>
+                                            <th className="p-2 text-right text-[0.8vw]">Unit Price</th>
+                                            <th className="p-2 text-right text-[0.8vw]">Total</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {items.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="4" className="p-8 text-center text-gray-400 text-[0.75vw]">
+                                                    No itemized items found. Click <strong>"+ Edit Items"</strong> to add rows, or enter legacy notes.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            items.map((item, index) => (
+                                                <tr key={index} className="hover:bg-gray-50">
+                                                    <td className="p-2 text-left text-[0.8vw] font-medium text-gray-800">
+                                                        {item.name || item.item_name || '—'}
+                                                    </td>
+                                                    <td className="p-2 text-center text-[0.8vw] text-gray-600">
+                                                        {item.quantity}
+                                                    </td>
+                                                    <td className="p-2 text-right text-[0.8vw] text-gray-600">
+                                                        ₱{Number(item.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="p-2 text-right text-[0.8vw] font-semibold text-gray-800">
+                                                        ₱{(Number(item.quantity) * Number(item.price)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
+                    )}
+                </div>
+
+                {/* Collection Receipts Section */}
+                <div className="flex flex-col gap-2 shrink-0">
+                    <label className="text-[0.9vw] font-bold text-gray-800">Collection Receipts:</label>
+                    <div className="flex gap-2 flex-wrap">
+                        {collectionReceipts.length === 0 ? (
+                            <span className="text-[0.75vw] text-gray-400">No collection receipts attached.</span>
+                        ) : (
+                            collectionReceipts.map((cr) => (
+                                <CollectionReceiptBlock
+                                    key={cr.id}
+                                    crNumber={cr.cr_number || cr.crNumber}
+                                    dateIssued={cr.date_issued || cr.dateIssued}
+                                    initialStatus={cr.status || cr.initialStatus}
+                                />
+                            ))
+                        )}
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-4 shrink-0">
-                    <label className="text-[1vw] font-bold">Collection Receipts:</label>
+                {/* Delivery Receipts Section */}
+                <div className="flex flex-col gap-2 shrink-0">
+                    <label className="text-[0.9vw] font-bold text-gray-800">Delivery Receipts:</label>
                     <div className="flex gap-2 flex-wrap">
-                        {collectionReceipts.map((cr) => (
-                            <CollectionReceiptBlock 
-                                key={cr.id}
-                                crNumber={cr.crNumber}
-                                dateIssued={cr.dateIssued}
-                                initialStatus={cr.initialStatus}
-                                onStatusChange={(selected) => console.log(`${cr.crNumber} Status:`, selected)}
-                            />
-                        ))}
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-4 shrink-0">
-                    <label className="text-[1vw] font-bold">Delivery Receipts:</label>
-                    <div className="flex gap-2 flex-wrap">
-                        {deliveryReceipts.map((dr) => (
-                            <DeliveryReceiptBlock 
-                                key={dr.id}
-                                drNumber={dr.drNumber}
-                                dateIssued={dr.dateIssued}
-                                initialStatus={dr.initialStatus}
-                                onStatusChange={(selected) => console.log(`${dr.drNumber} Status:`, selected)}
-                            />
-                        ))}
+                        {deliveryReceipts.length === 0 ? (
+                            <span className="text-[0.75vw] text-gray-400">No delivery receipts attached.</span>
+                        ) : (
+                            deliveryReceipts.map((dr) => (
+                                <DeliveryReceiptBlock
+                                    key={dr.id}
+                                    drNumber={dr.dr_number || dr.drNumber}
+                                    dateIssued={dr.date_issued || dr.dateIssued}
+                                    initialStatus={dr.status || dr.initialStatus}
+                                />
+                            ))
+                        )}
                     </div>
                 </div>
             </div>
 
+            {/* Toolbar */}
             <div id="toolBar" className="flex items-center justify-between p-6 border-t border-gray-200 shrink-0 bg-white">
-                <div className="flex gap-2 items-center text-[0.9vw]">
-                    <label>Tools:</label>
-                    <button className="px-2.5 py-0.5 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] cursor-pointer bg-[#F4F8FB] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors">
-                       + Create PO
+                <div className="flex gap-3 items-center text-[0.9vw]">
+                    <button
+                        onClick={() => navigate('/charge-invoices')}
+                        className="flex items-center gap-1.5 px-3 py-1 text-[0.8vw] rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors cursor-pointer"
+                    >
+                        <i className="far fa-arrow-left"></i>
+                        Back
                     </button>
 
-                    <button 
+                    <div className="w-px h-5 bg-gray-300"></div>
+
+                    <label className="font-semibold text-gray-700">Tools:</label>
+                    <button
                         type="button"
                         onClick={() => setIsDeliveryReceiptModalOpen(true)}
-                        className="px-2.5 py-0.5 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] cursor-pointer bg-[#F4F8FB] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors"
+                        className="px-2.5 py-0.5 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] bg-[#F4F8FB] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors"
                     >
-                       + Create Delivery Receipt
+                        + Create Delivery Receipt
                     </button>
-
-                    <button 
+                    <button
                         type="button"
                         onClick={() => setIsCollectionReceiptModalOpen(true)}
-                        className="px-2.5 py-0.5 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] cursor-pointer bg-[#F4F8FB] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors"
+                        className="px-2.5 py-0.5 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] bg-[#F4F8FB] text-[#5FA5DA] hover:bg-[#5FA5DA] hover:text-white transition-colors"
                     >
-                       + Create Collection Receipt
+                        + Create Collection Receipt
                     </button>
                 </div>
-                <div className="flex gap-2 items-center font-bold">
-                    <label>Amount Total:</label>
-                    <span className="text-[#FF8DCE]">
-                        ₱{items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.price)), 0).toFixed(2)}
-                    </span>
+                <div className="flex gap-4 items-center font-bold text-[0.9vw]">
+                    {discountAmount > 0 && (
+                        <div className="flex gap-1 text-gray-500 text-[0.8vw]">
+                            <span>Subtotal:</span>
+                            <span>₱{calculatedSubtotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                            <span className="text-red-500 ml-1">(-₱{Number(discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
+                        </div>
+                    )}
+                    <div className="flex gap-2 items-center">
+                        <label>Net Total:</label>
+                        <span className="text-[#FF8DCE] text-[1.1vw]">
+                            ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            {/* Auto Provisioning Modal Prompt */}
-            {isCreateAccountPromptOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs">
-                    <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-6 flex flex-col gap-4 border border-gray-200">
-                        <div className="flex items-center gap-3">
-                            <i className="far fa-user-plus text-xl text-[#5FA5DA]"></i>
-                            <h3 className="text-[1.05vw] font-bold text-gray-800">New Customer Account</h3>
-                        </div>
-
-                        <p className="text-[0.8vw] text-gray-600 leading-relaxed">
-                            <strong>"{customerName}"</strong> is not in your registered customer directory. Would you like to automatically create a customer account for them?
-                        </p>
-
-                        <div className="flex justify-end gap-2 mt-2">
-                            <button 
-                                type="button"
-                                onClick={executeSaveInvoice}
-                                className="px-3.5 py-1.5 text-[0.75vw] rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
-                            >
-                                Save Invoice Only
-                            </button>
-                            <button 
-                                type="button"
-                                onClick={handleConfirmAccountCreation}
-                                className="px-3.5 py-1.5 text-[0.75vw] rounded-full bg-[#5FA5DA] text-white hover:bg-[#4d90c3] font-semibold transition-colors cursor-pointer"
-                            >
-                                Save Invoice & Register Account
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <ChargeInvoiceDetailsModal 
+            <ChargeInvoiceDetailsModal
                 isOpen={isItemModalOpen}
                 onClose={() => setIsItemModalOpen(false)}
                 onSave={handleSaveItems}
