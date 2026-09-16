@@ -38,7 +38,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="app-layout">
+        <div className="app-layout scrollbar-none">
           <Sidebar
             isCollapsed={isSidebarCollapsed}
             toggleSidebar={toggleSidebar}

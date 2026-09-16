@@ -1,3 +1,4 @@
+// scripts/migrate_charge_invoices.js
 import fs from 'fs';
 import path from 'path';
 import csv from 'csv-parser';
@@ -15,17 +16,33 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
-const csvFilePath = path.resolve('scripts/CHARGE INVOICE.xlsx - EDITED 2022-2025.csv');
 
-// Parse raw spreadsheet dates and extract Year
-const parseDate = (dStr) => {
+// Target CSV files to process in chronological order
+const CSV_FILES = [
+  {
+    path: 'scripts/CHARGE INVOICE.xlsx - EDITED 2022-2025.csv',
+    defaultStartYear: 2022,
+  },
+  {
+    path: 'scripts/CHARGE INVOICE.xlsx - EDITED 2026.csv',
+    defaultStartYear: 2025,
+  },
+];
+
+// Clean date parser handling 2-digit years and shorthand month/year dates
+const parseDate = (dStr, fallbackYear) => {
   if (!dStr) return null;
-  const s = dStr.trim();
+  const s = String(dStr).trim();
+  if (s.toUpperCase() === 'CANCELLED' || s === '') return null;
+
+  // Manual shorthand overrides found in sheets
   if (s === '3/23') return { date: '2023-03-01', year: 2023 };
   if (s === '09/23') return { date: '2023-09-01', year: 2023 };
   if (s === '03/25') return { date: '2025-03-01', year: 2025 };
   if (s === '05/25') return { date: '2025-05-01', year: 2025 };
   if (s === '06/09') return { date: '2025-06-09', year: 2025 };
+  if (s === '8/25') return { date: '2025-08-01', year: 2025 };
+  if (s === '12/25') return { date: '2025-12-01', year: 2025 };
 
   const parts = s.split(/[-/]/);
   if (parts.length === 3) {
@@ -35,6 +52,14 @@ const parseDate = (dStr) => {
     const parsedYear = parseInt(y, 10);
     return isNaN(parsedYear) ? null : { date: formatted, year: parsedYear };
   }
+
+  if (parts.length === 2) {
+    let [m, y] = parts;
+    if (y.length === 2) y = '20' + y;
+    const parsedYear = parseInt(y, 10);
+    return isNaN(parsedYear) ? null : { date: `${y}-${m.padStart(2, '0')}-01`, year: parsedYear };
+  }
+
   return null;
 };
 
@@ -46,7 +71,7 @@ const cleanAmount = (val) => {
   return isNaN(num) ? 0.0 : num;
 };
 
-// Extracts discount values from STATUS/REMARKS (e.g., "10000 (DISCOUNT)" -> 10000)
+// Extracts discount numbers from STATUS/REMARKS
 const extractDiscount = (remarks) => {
   if (!remarks) return 0.0;
   const clean = remarks.replace(/,/g, '');
@@ -54,58 +79,95 @@ const extractDiscount = (remarks) => {
   return match ? parseFloat(match[1] || match[2]) : 0.0;
 };
 
-async function runMigration() {
-  console.log('Reading CSV file...');
+// Read and parse single CSV file
+async function readAndProcessCSV(filePath, defaultYear) {
   const rows = [];
+  const resolvedPath = path.resolve(filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`File not found: ${resolvedPath}`);
+  }
 
   await new Promise((resolve, reject) => {
-    fs.createReadStream(csvFilePath)
+    fs.createReadStream(resolvedPath)
       .pipe(csv())
       .on('data', (data) => rows.push(data))
       .on('end', resolve)
       .on('error', reject);
   });
 
-  // Filter out blank divider rows
-  const validRows = rows.filter((r) => r['COMPANY'] || r['DETAILS'] || r['AMOUNT']);
-  validRows.sort((a, b) => parseInt(a['CI NO.'], 10) - parseInt(b['CI NO.'], 10));
+  let currentPad = 1;
+  let currentYear = defaultYear;
+  const processed = [];
 
-  let lastYear = 2022;
-  const processedRows = validRows.map((r) => {
-    const ciNo = parseInt(r['CI NO.'], 10);
-    const parsed = parseDate(r['DATE']);
-    if (parsed) lastYear = parsed.year;
-
-    const dateIssued = parsed ? parsed.date : `${lastYear}-01-01`;
-    // Each pad contains 50 receipts starting from CI 751 (Pad 1)
-    const padNo = Math.floor((ciNo - 701) / 50);
-    
-    // Strict format: (year)-(pad no.)-(ci no.) with no spaces around dashes
-    const formattedCI = `${lastYear}-${padNo}-${ciNo}`;
-
-    const remarks = r['STATUS/REMARKS'] || '';
+  for (const r of rows) {
+    // Standardize to the 8 core headers of the 2022 file
+    const padRaw = r['PAD NO.'];
+    const ciRaw = r['CI NO.'];
     const company = r['COMPANY'] || '';
+    const details = r['DETAILS'] || '';
+    const poNumber = r['PO NUMBER'] || '';
+    const amountRaw = r['AMOUNT'] || '';
+    const remarks = r['STATUS/REMARKS'] || '';
+
+    // Update pad number whenever an explicit PAD NO. is encountered
+    if (padRaw && String(padRaw).trim() !== '') {
+      const parsedPad = parseInt(padRaw, 10);
+      if (!isNaN(parsedPad)) currentPad = parsedPad;
+    }
+
+    // Skip empty divider rows
+    if (!company.trim() && !details.trim() && !amountRaw.trim()) {
+      continue;
+    }
+
+    const ciNo = parseInt(ciRaw, 10);
+    if (isNaN(ciNo)) continue;
+
+    // Date and year resolution
+    const parsedDate = parseDate(r['DATE'], currentYear);
+    if (parsedDate) currentYear = parsedDate.year;
+
+    const dateIssued = parsedDate ? parsedDate.date : `${currentYear}-01-01`;
+
+    // Standardized CI format: YYYY-Pad-CI
+    const formattedCI = `${currentYear}-${currentPad}-${ciNo}`;
+
     const isCancelled = (remarks + ' ' + company).toLowerCase().includes('cancel');
     const discountVal = extractDiscount(remarks);
-    const rawAmount = cleanAmount(r['AMOUNT']);
+    const legacyAmount = cleanAmount(amountRaw);
 
-    return {
+    processed.push({
       ci_number: formattedCI,
       company: company.trim() || 'Walk-in',
       date_issued: dateIssued,
-      details: r['DETAILS'] ? r['DETAILS'].trim() : '',
-      po_number: r['PO NUMBER'] ? r['PO NUMBER'].trim() : null,
-      legacy_amount: rawAmount,
+      details: details.trim() || '',
+      po_number: poNumber.trim() || null,
+      legacy_amount: legacyAmount,
       discount_amount: discountVal,
       status: isCancelled ? 'cancelled' : 'unpaid',
-    };
-  });
+    });
+  }
 
-  console.log(`Parsed ${processedRows.length} valid invoice records.`);
+  return processed;
+}
 
-  // 1. Sync unique customers
-  console.log('Syncing customer directory...');
-  const uniqueCompanies = [...new Set(processedRows.map((r) => r.company))];
+async function runMigration() {
+  console.log('--- Starting Clean Supabase Migration ---');
+  let allInvoices = [];
+
+  for (const target of CSV_FILES) {
+    console.log(`Processing file: ${target.path}...`);
+    const records = await readAndProcessCSV(target.path, target.defaultStartYear);
+    console.log(` -> Extracted ${records.length} valid records.`);
+    allInvoices = allInvoices.concat(records);
+  }
+
+  console.log(`Total valid invoices to migrate: ${allInvoices.length}`);
+
+  // 1. Sync Customer Directory
+  console.log('Syncing unique customers to Supabase...');
+  const uniqueCompanies = [...new Set(allInvoices.map((r) => r.company))];
   const customerCache = {};
 
   for (const comp of uniqueCompanies) {
@@ -130,8 +192,8 @@ async function runMigration() {
     }
   }
 
-  // 2. Prepare and batch insert invoices
-  const invoicePayload = processedRows.map((r) => ({
+  // 2. Batch upload charge invoices
+  const payload = allInvoices.map((r) => ({
     ci_number: r.ci_number,
     customer_id: customerCache[r.company.toLowerCase()] || null,
     customer_name: r.company,
@@ -143,9 +205,9 @@ async function runMigration() {
     status: r.status,
   }));
 
-  console.log('Uploading Charge Invoices in batches...');
-  for (let i = 0; i < invoicePayload.length; i += 100) {
-    const chunk = invoicePayload.slice(i, i + 100);
+  console.log('Uploading Charge Invoices in batches of 100...');
+  for (let i = 0; i < payload.length; i += 100) {
+    const chunk = payload.slice(i, i + 100);
     const { error } = await supabase
       .from('charge_invoices')
       .upsert(chunk, { onConflict: 'ci_number' });
@@ -157,7 +219,7 @@ async function runMigration() {
     }
   }
 
-  console.log('Migration complete! All CI numbers formatted as YYYY-PadNo-CINo.');
+  console.log('--- Migration Complete! ---');
 }
 
 runMigration().catch(console.error);

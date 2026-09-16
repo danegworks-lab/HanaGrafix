@@ -20,6 +20,9 @@ function Home() {
     const topDebtors = dashboardData.topDebtors || [];
     const totalUnpaidBalance = dashboardData.totalUnpaidBalance || 0;
     const unpaidCount = dashboardData.unpaidCount || 0;
+    const overdue30Count = dashboardData.overdue30Count || 0;
+    const overdue30Balance = dashboardData.overdue30Balance || 0;
+    const activeDebtorCount = dashboardData.activeDebtorCount || 0;
 
     // Helper to calculate days overdue
     const getDaysOverdue = (dateString) => {
@@ -63,27 +66,51 @@ function Home() {
             </div>
 
             {/* Main Scrollable Content */}
-            <div id="contentContainer" className="flex-1 flex flex-col gap-6 overflow-y-auto px-6 pt-0 pb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div id="contentContainer" className="flex-1 flex flex-col gap-6 overflow-y-auto px-6 pt-0 pb-6 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] scrollbar-none">
                 
                 {/* 1. Summary Cards Row */}
                 <div className="grid grid-cols-4 gap-4 shrink-0">
+                    {/* Card 1: Total Unpaid Balance */}
                     <div className="bg-[#F4F8FB] border-2 border-[#5FA5DA] rounded-xl p-4 flex flex-col justify-between">
                         <span className="text-[0.75vw] font-semibold text-gray-600">Total Unpaid Balance (CI)</span>
                         <span className="text-[1.4vw] font-bold text-[#DC1D10] mt-2">
                             ₱ {Number(totalUnpaidBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </span>
                     </div>
+
+                    {/* Card 2: Pending Invoices Count */}
                     <div className="bg-[#F4F8FB] border-2 border-[#5FA5DA] rounded-xl p-4 flex flex-col justify-between">
                         <span className="text-[0.75vw] font-semibold text-gray-600">Unpaid Charge Invoices</span>
                         <span className="text-[1.4vw] font-bold text-[#5FA5DA] mt-2">{unpaidCount} Pending</span>
                     </div>
+
+                    {/* Card 3: Overdue > 30 Days (Replaces Pending Deliveries) */}
                     <div className="bg-[#F4F8FB] border-2 border-[#5FA5DA] rounded-xl p-4 flex flex-col justify-between">
-                        <span className="text-[0.75vw] font-semibold text-gray-600">Pending Deliveries</span>
-                        <span className="text-[1.4vw] font-bold text-amber-500 mt-2">5 DRs Pending</span>
+                        <div className="flex items-center justify-between">
+                            <span className="text-[0.75vw] font-semibold text-gray-600">Aging Invoices (&gt;30 Days)</span>
+                            <span className="text-[0.65vw] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                                {overdue30Count} Overdue
+                            </span>
+                        </div>
+                        <span className="text-[1.4vw] font-bold text-amber-600 mt-2">
+                            ₱ {Number(overdue30Balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
                     </div>
+
+                    {/* Card 4: Active Customer Debtors (Replaces Collections Placeholder) */}
                     <div className="bg-[#F4F8FB] border-2 border-[#5FA5DA] rounded-xl p-4 flex flex-col justify-between">
-                        <span className="text-[0.75vw] font-semibold text-gray-600">Collections (This Month)</span>
-                        <span className="text-[1.4vw] font-bold text-[#22E11F] mt-2">₱ 18,500.00</span>
+                        <span className="text-[0.75vw] font-semibold text-gray-600">Active Debtor Accounts</span>
+                        <div className="flex items-baseline justify-between mt-2">
+                            <span className="text-[1.4vw] font-bold text-[#22E11F]">
+                                {activeDebtorCount} Companies
+                            </span>
+                            <button
+                                onClick={() => navigate('/accounts')}
+                                className="text-[0.7vw] text-[#5FA5DA] underline font-semibold cursor-pointer hover:text-[#4d90c3]"
+                            >
+                                View Accounts
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -97,12 +124,9 @@ function Home() {
                                 <i className="far fa-exclamation-circle text-[#DC1D10]"></i>
                                 Unpaid Charge Invoices (Oldest to Newest)
                             </span>
-                            <span className="text-[0.7vw] bg-[#DC1D10] text-white px-2 py-0.5 rounded-full font-semibold">
-                                Urgent Receivables
-                            </span>
                         </div>
 
-                        <div className="flex-1 overflow-auto">
+                        <div className="flex-1 overflow-auto scrollbar-none">
                             {loading && unpaidInvoices.length === 0 ? (
                                 <div className="p-8 text-center text-gray-500 text-[0.9vw]">Loading receivables...</div>
                             ) : filteredInvoices.length === 0 ? (
@@ -161,7 +185,7 @@ function Home() {
                             </span>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+                        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 scrollbar-none">
                             {filteredDebtors.length === 0 ? (
                                 <div className="p-4 text-center text-gray-400 text-[0.75vw]">No debtors matching filter.</div>
                             ) : (
@@ -176,7 +200,7 @@ function Home() {
                                                 ₱ {Number(debtor.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                             </span>
                                             <button 
-                                                onClick={() => navigate('/accounts-details')}
+                                                onClick={() => navigate('/accounts')}
                                                 className="text-[0.65vw] text-[#5FA5DA] underline font-semibold cursor-pointer hover:text-[#4d90c3]"
                                             >
                                                 View Account
