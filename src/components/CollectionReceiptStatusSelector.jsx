@@ -1,18 +1,20 @@
+// src/components/CollectionReceiptStatusSelector.jsx
 import React, { useState, useEffect } from 'react';
 
 const STATUSES = {
-  paid: { label: 'Paid', bg: '#22E11F', text: '#FFFFFF' },
+  full: { label: 'Full', bg: '#22E11F', text: '#FFFFFF' },
   partial: { label: 'Partial', bg: '#F5E12A', text: '#FFFFFF' },
-  unpaid: { label: 'Unpaid', bg: '#DC1D10', text: '#FFFFFF' },
+  pending: { label: 'Pending', bg: '#DC1D10', text: '#FFFFFF' },
   cancelled: { label: 'Cancelled', bg: '#8B5CF6', text: '#FFFFFF' },
 };
 
-export default function StatusSelector({ initialStatus = 'unpaid', value, onChange }) {
-  // Support both controlled 'value' or 'initialStatus'
-  const currentStatus = value !== undefined ? value : initialStatus;
+export default function CollectionReceiptStatusSelector({ initialStatus = 'full', value, onChange }) {
+  // Normalize incoming values like 'paid' to 'full'
+  const rawStatus = value !== undefined ? value : initialStatus;
+  const currentStatus = String(rawStatus || '').toLowerCase() === 'paid' ? 'full' : (rawStatus || 'full');
+
   const [status, setStatus] = useState(currentStatus);
 
-  // Keep internal state in sync whenever parent prop changes
   useEffect(() => {
     setStatus(currentStatus);
   }, [currentStatus]);
@@ -23,7 +25,7 @@ export default function StatusSelector({ initialStatus = 'unpaid', value, onChan
     if (onChange) onChange(selected);
   };
 
-  const current = STATUSES[status] || STATUSES.unpaid;
+  const current = STATUSES[status] || STATUSES.full;
 
   return (
     <select

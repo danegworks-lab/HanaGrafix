@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ChargeInvoiceDetailsModal from './ChargeInvoiceDetailsModal';
 
 /**
@@ -8,11 +8,23 @@ import ChargeInvoiceDetailsModal from './ChargeInvoiceDetailsModal';
  * - isOpen: boolean to control visibility
  * - onClose: function to close the modal
  * - onSubmit: function that receives the receipt form data
+ * - companyName: customer/company name passed from ChargeInvoiceDetails
+ * - customerName: fallback prop for company name
+ * - ciNumber: linked invoice identifier
  */
-export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }) {
+export default function CreateDeliveryReceiptModal({ 
+  isOpen, 
+  onClose, 
+  onSubmit, 
+  companyName = '', 
+  customerName = '',
+  ciNumber = ''
+}) {
+  const initialCompany = companyName || customerName || '';
+
   const [formData, setFormData] = useState({
-    dateIssued: '',
-    deliveredTo: '',
+    dateIssued: new Date().toISOString().split('T')[0],
+    deliveredTo: initialCompany,
     tin: '',
     businessAddress: '',
     deliveryDetailsLegacy: '',
@@ -25,6 +37,17 @@ export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }
     { name: '', quantity: 1, price: 0 }
   ]);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
+
+  // Sync autofilled company name and reset defaults when the modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setFormData((prev) => ({
+        ...prev,
+        deliveredTo: companyName || customerName || prev.deliveredTo || '',
+        dateIssued: prev.dateIssued || new Date().toISOString().split('T')[0]
+      }));
+    }
+  }, [isOpen, companyName, customerName]);
 
   if (!isOpen) return null;
 
@@ -48,6 +71,7 @@ export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }
       onSubmit({
         ...formData,
         deliveryDetails: deliveryItems,
+        ciNumber
       });
     }
     onClose();
@@ -60,7 +84,14 @@ export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }
           
           {/* Header */}
           <div className="flex justify-between items-center border-b p-4 shrink-0">
-            <h2 className="text-lg font-bold text-gray-800">Create Delivery Receipt</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-gray-800">Create Delivery Receipt</h2>
+              {ciNumber && (
+                <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-[#5FA5DA] font-semibold border border-blue-200">
+                  CI #{ciNumber}
+                </span>
+              )}
+            </div>
             <button 
               type="button" 
               onClick={onClose}
@@ -127,7 +158,7 @@ export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }
                 </select>
               </div>
               <div className="flex flex-col gap-1 w-1/3">
-                <label className="text-xs font-semibold text-gray-600">Total Paid Amount ($)</label>
+                <label className="text-xs font-semibold text-gray-600">Total Paid Amount (₱)</label>
                 <input
                   type="number"
                   name="totalPaidAmount"
@@ -197,8 +228,8 @@ export default function CreateDeliveryReceiptModal({ isOpen, onClose, onSubmit }
                         <tr key={index}>
                           <td className="p-1.5 text-left">{item.name || '—'}</td>
                           <td className="p-1.5 text-center">{item.quantity}</td>
-                          <td className="p-1.5 text-right">${Number(item.price).toFixed(2)}</td>
-                          <td className="p-1.5 text-right">${(Number(item.quantity) * Number(item.price)).toFixed(2)}</td>
+                          <td className="p-1.5 text-right">₱{Number(item.price).toFixed(2)}</td>
+                          <td className="p-1.5 text-right">₱{(Number(item.quantity) * Number(item.price)).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>

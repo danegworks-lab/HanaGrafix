@@ -47,7 +47,28 @@ export const chargeInvoiceService = {
             throw new Error(`Charge Invoice "${identifier}" could not be found.`);
         }
 
-        return ChargeInvoiceDTO.fromDatabase(data);
+        // Fetch receipts using the resolved database UUID (data.id)
+        const [crRes, drRes] = await Promise.all([
+            supabase
+                .from('collection_receipts')
+                .select('*')
+                .eq('charge_invoice_id', data.id)
+                .order('date_issued', { ascending: false }),
+            supabase
+                .from('delivery_receipts')
+                .select('*')
+                .eq('charge_invoice_id', data.id)
+                .order('date_issued', { ascending: false })
+        ]);
+
+        const invoiceDto = ChargeInvoiceDTO.fromDatabase(data);
+
+        return {
+            ...invoiceDto,
+            invoice: invoiceDto,
+            collectionReceipts: crRes.data || [],
+            deliveryReceipts: drRes.data || []
+        };
     },
 
     // 3. CREATE
@@ -63,7 +84,6 @@ export const chargeInvoiceService = {
 
         if (error) throw error;
 
-        // Insert itemized list if items exist
         if (dto.items && dto.items.length > 0) {
             const itemsPayload = dto.items.map((i) => i.toDatabase(created.id));
             const { error: itemErr } = await supabase
@@ -87,7 +107,6 @@ export const chargeInvoiceService = {
 
         if (updateErr) throw updateErr;
 
-        // Sync items: replace existing items with the updated set
         if (dto.items) {
             await supabase.from('charge_invoice_items').delete().eq('charge_invoice_id', id);
             if (dto.items.length > 0) {
@@ -110,13 +129,6 @@ export const chargeInvoiceService = {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
         const queryColumn = isUuid ? 'id' : 'ci_number';
 
-        console.group(`[chargeInvoiceService] updateStatus`);
-        console.log('Incoming Raw Identifier:', identifier);
-        console.log('Incoming Raw Status:', status);
-        console.log('Query Target:', { column: queryColumn, value: identifier });
-        console.log('Payload to Supabase:', { status: normalizedStatus });
-        console.groupEnd();
-
         const { data, error } = await supabase
             .from('charge_invoices')
             .update({ status: normalizedStatus })
@@ -128,7 +140,6 @@ export const chargeInvoiceService = {
             throw error;
         }
 
-        console.log('[chargeInvoiceService] Update Success. Returned Row:', data);
         return data;
     },
 
@@ -140,5 +151,20 @@ export const chargeInvoiceService = {
             .eq('id', id);
 
         if (error) throw error;
+    },
+
+    async updateDeliveryStatus(identifier, deliveryStatus) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+        const query = supabase.from('charge_invoices').update({ delivery_status: deliveryStatus });
+        
+        const { data, error } = isUuid 
+            ? await query.eq('id', identifier).select() 
+            : await query.eq('ci_number', identifier).select();
+
+        if (error) {
+            console.error('[chargeInvoiceService] Error updating delivery status:', error);
+            throw error;
+        }
+        return data;
     }
 };

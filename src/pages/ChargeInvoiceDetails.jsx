@@ -79,6 +79,13 @@ function ChargeInvoiceDetails() {
 
     const totalAmount = Math.max(0, calculatedSubtotal - Number(discountAmount));
 
+    // Calculate Total Collected & Remaining Balance to be Paid
+    const totalCollected = collectionReceipts
+        .filter((cr) => String(cr.status).toLowerCase() !== 'cancelled')
+        .reduce((sum, cr) => sum + Number(cr.amount_collected ?? cr.amountCollected ?? cr.amount ?? 0), 0);
+
+    const remainingBalance = Math.max(0, totalAmount - totalCollected);
+
     // Save/Update to Supabase
     const handleSaveInvoice = async () => {
         if (!customerName.trim()) {
@@ -97,7 +104,6 @@ function ChargeInvoiceDetails() {
                 status,
                 legacyOrderDetails: hasItemized ? null : (legacyOrderDetails.trim() || null),
                 discountAmount: Number(discountAmount) || 0.00,
-                // Explicitly pass calculated gross subtotal so legacy_amount is not wiped out
                 subtotal: calculatedSubtotal,
                 items: hasItemized ? items : []
             };
@@ -144,7 +150,6 @@ function ChargeInvoiceDetails() {
         }));
         setItems(sanitized);
 
-        // When itemized items are added, clear legacy order text to transition to the itemized table
         if (sanitized.length > 0) {
             setLegacyOrderDetails('');
         }
@@ -158,11 +163,13 @@ function ChargeInvoiceDetails() {
             return;
         }
         try {
-            const receipt = await receiptService.createDeliveryReceipt({
+            await receiptService.createDeliveryReceipt({
                 ...formData,
-                chargeInvoiceId: targetId
+                companyName: formData.companyName || customerName,
+                chargeInvoiceId: invoiceDbId || targetId,
+                ciNumber: ciNumber
             });
-            setDeliveryReceipts((prev) => [...prev, receipt]);
+            await loadInvoiceDetails(ciIdentifier);
             setIsDeliveryReceiptModalOpen(false);
         } catch (err) {
             console.error('Error creating Delivery Receipt:', err);
@@ -178,11 +185,13 @@ function ChargeInvoiceDetails() {
             return;
         }
         try {
-            const receipt = await receiptService.createCollectionReceipt({
+            await receiptService.createCollectionReceipt({
                 ...formData,
-                chargeInvoiceId: targetId
+                companyName: formData.companyName || customerName,
+                chargeInvoiceId: invoiceDbId || targetId,
+                ciNumber: ciNumber
             });
-            setCollectionReceipts((prev) => [...prev, receipt]);
+            await loadInvoiceDetails(ciIdentifier);
             setIsCollectionReceiptModalOpen(false);
         } catch (err) {
             console.error('Error creating Collection Receipt:', err);
@@ -198,7 +207,6 @@ function ChargeInvoiceDetails() {
         );
     }
 
-    // Determine layout: Legacy Text Area vs Itemized Table
     const hasLegacyDetails = Boolean(legacyOrderDetails && legacyOrderDetails.trim());
 
     return (
@@ -272,7 +280,6 @@ function ChargeInvoiceDetails() {
                 {/* Conditional Order Details: Legacy Textarea OR Itemized Table */}
                 <div className="flex-1 min-h-0 flex gap-4 items-stretch">
                     {hasLegacyDetails ? (
-                        /* Legacy Mode: Full-Width Text Area with option to convert */
                         <div className="flex flex-col gap-2 h-full w-full">
                             <div className="flex items-center justify-between shrink-0">
                                 <label className="text-[0.8vw] font-semibold text-gray-700">
@@ -294,7 +301,6 @@ function ChargeInvoiceDetails() {
                             />
                         </div>
                     ) : (
-                        /* Itemized Mode: Full-Width Table */
                         <div className="flex flex-col gap-2 h-full w-full">
                             <div className="flex items-center justify-between shrink-0">
                                 <label className="text-[0.8vw] font-semibold text-gray-700">
@@ -353,17 +359,26 @@ function ChargeInvoiceDetails() {
 
                 {/* Collection Receipts Section */}
                 <div className="flex flex-col gap-2 shrink-0">
-                    <label className="text-[0.9vw] font-bold text-gray-800">Collection Receipts:</label>
-                    <div className="flex gap-2 flex-wrap">
+                    <div className="flex justify-between items-center">
+                        <label className="text-[0.9vw] font-bold text-gray-800">Collection Receipts:</label>
+                        {collectionReceipts.length > 0 && (
+                            <span className="text-[0.75vw] font-semibold text-emerald-600">
+                                Total Paid: ₱{totalCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex gap-2.5 flex-wrap">
                         {collectionReceipts.length === 0 ? (
                             <span className="text-[0.75vw] text-gray-400">No collection receipts attached.</span>
                         ) : (
                             collectionReceipts.map((cr) => (
                                 <CollectionReceiptBlock
-                                    key={cr.id}
+                                    key={cr.id || cr.cr_number}
+                                    id={cr.id || cr.cr_number}
                                     crNumber={cr.cr_number || cr.crNumber}
                                     dateIssued={cr.date_issued || cr.dateIssued}
-                                    initialStatus={cr.status || cr.initialStatus}
+                                    amount={cr.amount_collected ?? cr.amountCollected ?? cr.amount ?? 0}
+                                    initialStatus={cr.status || cr.initialStatus || 'full'}
                                 />
                             ))
                         )}
@@ -373,16 +388,18 @@ function ChargeInvoiceDetails() {
                 {/* Delivery Receipts Section */}
                 <div className="flex flex-col gap-2 shrink-0">
                     <label className="text-[0.9vw] font-bold text-gray-800">Delivery Receipts:</label>
-                    <div className="flex gap-2 flex-wrap">
+                    <div className="flex gap-2.5 flex-wrap">
                         {deliveryReceipts.length === 0 ? (
                             <span className="text-[0.75vw] text-gray-400">No delivery receipts attached.</span>
                         ) : (
                             deliveryReceipts.map((dr) => (
                                 <DeliveryReceiptBlock
-                                    key={dr.id}
+                                    key={dr.id || dr.dr_number}
+                                    id={dr.id || dr.dr_number}
                                     drNumber={dr.dr_number || dr.drNumber}
                                     dateIssued={dr.date_issued || dr.dateIssued}
-                                    initialStatus={dr.status || dr.initialStatus}
+                                    amount={dr.total_paid_amount ?? dr.totalPaidAmount ?? dr.amount ?? 0}
+                                    initialStatus={dr.status || dr.initialStatus || 'completed'}
                                 />
                             ))
                         )}
@@ -419,7 +436,9 @@ function ChargeInvoiceDetails() {
                         + Create Collection Receipt
                     </button>
                 </div>
-                <div className="flex gap-4 items-center font-bold text-[0.9vw]">
+
+                {/* Financial Summary Displays */}
+                <div className="flex gap-5 items-center font-bold text-[0.9vw]">
                     {discountAmount > 0 && (
                         <div className="flex gap-1 text-gray-500 text-[0.8vw]">
                             <span>Subtotal:</span>
@@ -427,10 +446,30 @@ function ChargeInvoiceDetails() {
                             <span className="text-red-500 ml-1">(-₱{Number(discountAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })})</span>
                         </div>
                     )}
-                    <div className="flex gap-2 items-center">
-                        <label>Net Total:</label>
-                        <span className="text-[#FF8DCE] text-[1.1vw]">
-                            ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+
+                    {/* Net Total */}
+                    <div className="flex gap-1.5 items-center">
+                        <label className="text-gray-600 font-semibold text-[0.8vw]">Net Total:</label>
+                        <span className="text-gray-800 text-[0.95vw]">
+                            ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                    </div>
+
+                    {/* Total Paid / Collected */}
+                    <div className="flex gap-1.5 items-center">
+                        <label className="text-emerald-700 font-semibold text-[0.8vw]">Paid:</label>
+                        <span className="text-emerald-600 text-[0.95vw]">
+                            ₱{totalCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                    </div>
+
+                    <div className="w-px h-5 bg-gray-300"></div>
+
+                    {/* Outstanding Balance (Yet to be paid) */}
+                    <div className="flex gap-1.5 items-center">
+                        <label className="text-gray-700 font-bold text-[0.85vw]">Balance Due:</label>
+                        <span className={`text-[1.1vw] font-extrabold ${remainingBalance > 0 ? 'text-[#DC1D10]' : 'text-emerald-600'}`}>
+                            ₱{remainingBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                     </div>
                 </div>
@@ -447,12 +486,19 @@ function ChargeInvoiceDetails() {
                 isOpen={isDeliveryReceiptModalOpen}
                 onClose={() => setIsDeliveryReceiptModalOpen(false)}
                 onSubmit={handleCreateDeliveryReceipt}
+                companyName={customerName}
+                customerName={customerName}
+                ciNumber={ciNumber}
             />
 
             <CreateCollectionReceiptModal
                 isOpen={isCollectionReceiptModalOpen}
                 onClose={() => setIsCollectionReceiptModalOpen(false)}
                 onSubmit={handleCreateCollectionReceipt}
+                companyName={customerName}
+                customerName={customerName}
+                ciNumber={ciNumber}
+                invoiceTotal={remainingBalance > 0 ? remainingBalance : totalAmount}
             />
         </div>
     );
