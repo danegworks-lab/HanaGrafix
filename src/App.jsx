@@ -55,7 +55,6 @@ function App() {
               <Route path="/collection-receipts-details" element={<CollectionReceiptsDetails />} />
               <Route path="/collection-receipts-details/:id" element={<CollectionReceiptsDetails />} />
               <Route path="/delivery-receipts" element={<DeliveryReceiptsMain />} />
-              <Route path="/delivery-receipts-details" element={<DeliveryReceiptsDetails />} />
               <Route path="/delivery-receipts-details/:id" element={<DeliveryReceiptsDetails />} />
               <Route path="/sales-invoices" element={<SalesInvoicesMain />} />
               <Route path="/sales-invoices-details" element={<SalesInvoicesDetails />} />

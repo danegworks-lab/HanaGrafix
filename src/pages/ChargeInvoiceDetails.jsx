@@ -489,6 +489,9 @@ function ChargeInvoiceDetails() {
                 companyName={customerName}
                 customerName={customerName}
                 ciNumber={ciNumber}
+                invoiceItems={items}
+                legacyOrderDetails={legacyOrderDetails}
+                existingDeliveries={deliveryReceipts}
             />
 
             <CreateCollectionReceiptModal

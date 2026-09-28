@@ -1,33 +1,26 @@
 // src/components/DeliveryReceiptStatusSelector.jsx
 import React, { useState, useEffect } from 'react';
 
-const BASE_STATUSES = {
-  pending: { label: 'Pending', bg: '#5FA5DA', text: '#FFFFFF' },
-  completed: { label: 'Completed', bg: '#22E11F', text: '#FFFFFF' },
-  cancelled: { label: 'Cancelled', bg: '#DC1D10', text: '#FFFFFF' },
-};
-
-const NO_DELIVERY_STATUS = {
-  no_delivery: { label: 'No Delivery', bg: '#9CA3AF', text: '#FFFFFF' },
+const STATUSES = {
+  'pending delivery': { label: 'Pending Delivery', bg: '#DC1D10', text: '#FFFFFF' },
+  'completed': { label: 'Completed', bg: '#22E11F', text: '#FFFFFF' },
+  'cancelled': { label: 'Cancelled', bg: '#8B5CF6', text: '#FFFFFF' }
 };
 
 export default function DeliveryReceiptStatusSelector({ 
-  initialStatus = 'pending', 
+  initialStatus = 'pending delivery', 
   value, 
-  onChange,
-  isChargeInvoice = false 
+  onChange 
 }) {
-  const availableStatuses = isChargeInvoice 
-    ? { ...BASE_STATUSES, ...NO_DELIVERY_STATUS } 
-    : BASE_STATUSES;
+  const rawStatus = value !== undefined ? value : initialStatus;
+  const normalized = String(rawStatus || '').toLowerCase().trim();
+  const currentStatus = normalized === 'pending' ? 'pending delivery' : (normalized || 'pending delivery');
 
-  const [status, setStatus] = useState(value !== undefined ? value : initialStatus);
+  const [status, setStatus] = useState(currentStatus);
 
   useEffect(() => {
-    if (value !== undefined) {
-      setStatus(value);
-    }
-  }, [value]);
+    setStatus(currentStatus);
+  }, [currentStatus]);
 
   const handleSelect = (e) => {
     const selected = e.target.value;
@@ -35,7 +28,7 @@ export default function DeliveryReceiptStatusSelector({
     if (onChange) onChange(selected);
   };
 
-  const current = availableStatuses[status] || availableStatuses.pending || availableStatuses.completed;
+  const current = STATUSES[status] || STATUSES['pending delivery'];
 
   return (
     <select
@@ -44,17 +37,17 @@ export default function DeliveryReceiptStatusSelector({
       style={{
         backgroundColor: current.bg,
         color: current.text,
-        padding: '2px 10px',
+        padding: '2px 12px',
         borderRadius: '20px',
-        fontWeight: 500,
-        fontSize: '0.7vw',
+        fontWeight: 400,
+        fontSize: '0.8vw',
         border: 'none',
         outline: 'none',
         cursor: 'pointer',
         transition: 'background-color 0.2s ease',
       }}
     >
-      {Object.entries(availableStatuses).map(([key, item]) => (
+      {Object.entries(STATUSES).map(([key, item]) => (
         <option key={key} value={key} style={{ backgroundColor: '#fff', color: '#000' }}>
           {item.label}
         </option>

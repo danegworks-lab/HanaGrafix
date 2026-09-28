@@ -1,3 +1,4 @@
+// src/dtos/DeliveryReceiptDTO.js
 export class DeliveryReceiptDTO {
     constructor(data = {}) {
         this.id = data.id || null;
@@ -5,7 +6,17 @@ export class DeliveryReceiptDTO {
         this.chargeInvoiceId = data.chargeInvoiceId || data.charge_invoice_id || null;
         this.dateIssued = data.dateIssued || data.date_issued || new Date().toISOString().split('T')[0];
         this.paymentType = data.paymentType || data.payment_type || 'cash';
-        this.status = data.status || 'completed';
+        
+        // Normalize status to 'pending delivery' or 'completed'
+        const rawStatus = String(data.status || 'pending delivery').toLowerCase().trim();
+        if (rawStatus === 'pending') {
+            this.status = 'pending delivery';
+        } else if (rawStatus === 'delivered' || rawStatus === 'completed') {
+            this.status = 'completed';
+        } else {
+            this.status = rawStatus;
+        }
+
         this.deliveredTo = data.deliveredTo || data.delivered_to || data.companyName || '';
         this.businessAddress = data.businessAddress || data.business_address || '';
         this.tin = data.tin || '';

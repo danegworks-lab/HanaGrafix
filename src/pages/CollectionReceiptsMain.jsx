@@ -18,6 +18,7 @@ function CollectionReceiptsMain() {
         direction: 'desc'
     });
 
+    // TanStack Query: Fetch Collection Receipts with polling
     const { 
         data: receipts = [], 
         isLoading: loading 
@@ -26,6 +27,7 @@ function CollectionReceiptsMain() {
         queryFn: () => receiptService.getCollectionReceipts(),
         staleTime: 0,
         refetchOnMount: 'always',
+        refetchInterval: 10000,
     });
 
     const updateStatusMutation = useMutation({
@@ -77,8 +79,7 @@ function CollectionReceiptsMain() {
             const matchesSearch = crMatches || ciMatches || customerMatches;
             const matchesDate = !filterDate || rc.dateIssued === filterDate;
             
-            // Normalize status comparison ('full' and 'paid' treated equivalently)
-            const currentStatus = String(rc.status || '').toLowerCase() === 'full' ? 'paid' : String(rc.status || '').toLowerCase();
+            const currentStatus = String(rc.status || '').toLowerCase().trim();
             const targetFilter = filterStatus.toLowerCase();
             const matchesStatus = filterStatus === 'all' || currentStatus === targetFilter;
 
@@ -117,6 +118,7 @@ function CollectionReceiptsMain() {
 
     return (
         <div className="flex flex-col h-screen">
+            {/* Header */}
             <div id="pageHeader" className="flex items-center justify-between p-6 shrink-0">
                 <h1 className="text-xl font-bold">Collection Receipts</h1>
                 <div className="flex items-center max-w-62.5 gap-2.5 bg-[#F4F8FB] text-[#5FA5DA] text-[0.8vw] border-3 border-[#5FA5DA] rounded-full px-4 py-2">
@@ -131,6 +133,7 @@ function CollectionReceiptsMain() {
                 </div>
             </div>
 
+            {/* Table Container */}
             <div id="tableContainer" className="flex-1 overflow-auto scrollbar-none">
                 <table className="min-w-full border-collapse">
                     <thead className="sticky top-0 bg-white z-10 border-b border-gray-200 select-none">
@@ -176,14 +179,29 @@ function CollectionReceiptsMain() {
                     <tbody className="bg-white divide-y divide-gray-200">
                         {loading ? (
                             <tr>
-                                <td colSpan="8" className="p-8 text-center text-gray-500 text-[0.85vw]">
-                                    Loading collection receipts...
+                                <td colSpan="8" className="p-16 text-center text-gray-500">
+                                    <div className="flex flex-col items-center justify-center gap-3">
+                                        <i className="fal fa-spinner-third fa-spin text-3xl text-[#5FA5DA]"></i>
+                                        <span className="text-[0.9vw] font-medium text-gray-600">Loading collection receipts...</span>
+                                    </div>
                                 </td>
                             </tr>
                         ) : processedReceipts.length === 0 ? (
                             <tr>
-                                <td colSpan="8" className="p-8 text-center text-gray-400 text-[0.85vw]">
-                                    No collection receipts found matching your criteria.
+                                <td colSpan="8" className="p-16 text-center">
+                                    <div className="flex flex-col items-center justify-center gap-3 py-10 select-none">
+                                        <div className="w-20 h-20 rounded-full bg-[#F4F8FB] border border-[#5FA5DA]/30 flex items-center justify-center text-[#5FA5DA] shadow-xs">
+                                            <i className="fal fa-receipt text-4xl"></i>
+                                        </div>
+                                        <div className="flex flex-col gap-1 items-center">
+                                            <span className="text-base font-bold text-gray-700">No Collection Receipts Yet</span>
+                                            <span className="text-xs text-gray-400 max-w-sm">
+                                                {searchTerm || filterDate || filterStatus !== 'all'
+                                                    ? 'No collection receipts match your filter criteria. Try adjusting or clearing your filters.'
+                                                    : 'There are currently no recorded collection receipts. Attach one from a Charge Invoice.'}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         ) : (
@@ -213,7 +231,7 @@ function CollectionReceiptsMain() {
                                             {formatPaymentType(rc.paymentType)}
                                         </span>
                                     </td>
-                                    <td className="px-2.5 py-2.5">
+                                    <td className="px-4 py-2.5">
                                         <CollectionReceiptStatusSelector 
                                             initialStatus={rc.status}
                                             value={rc.status}
@@ -241,7 +259,7 @@ function CollectionReceiptsMain() {
                 </table>
             </div>
 
-            {/* Bottom Toolbar with Synchronized Status Values */}
+            {/* Bottom Toolbar */}
             <div id="toolBar" className="flex items-center justify-between p-6 border-t border-gray-200 shrink-0 bg-white">
                 <div className="flex gap-4 items-center text-[0.8vw]">
                     <div className="flex gap-2 items-center">
@@ -255,7 +273,7 @@ function CollectionReceiptsMain() {
                         {filterDate && (
                             <button
                                 onClick={() => setFilterDate('')}
-                                className="text-gray-400 hover:text-gray-600 text-xs"
+                                className="text-gray-400 hover:text-gray-600 text-xs cursor-pointer"
                                 title="Clear date filter"
                             >
                                 ✕
