@@ -1,3 +1,4 @@
+// src/pages/ChargeInvoiceDetails.jsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import StatusSelector from '../components/ChargeInvoiceStatusSelector';
@@ -75,7 +76,7 @@ function ChargeInvoiceDetails() {
     // Calculate Subtotal & Net Total
     const calculatedSubtotal = items.length > 0
         ? items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.price)), 0)
-        : legacyAmount;
+        : Number(legacyAmount) || 0.00;
 
     const totalAmount = Math.max(0, calculatedSubtotal - Number(discountAmount));
 
@@ -150,8 +151,14 @@ function ChargeInvoiceDetails() {
         }));
         setItems(sanitized);
 
+        const newItemsTotal = sanitized.reduce(
+            (sum, item) => sum + (Number(item.quantity) * Number(item.price)), 
+            0
+        );
+
         if (sanitized.length > 0) {
             setLegacyOrderDetails('');
+            setLegacyAmount(newItemsTotal);
         }
     };
 
@@ -207,7 +214,7 @@ function ChargeInvoiceDetails() {
         );
     }
 
-    const hasLegacyDetails = Boolean(legacyOrderDetails && legacyOrderDetails.trim());
+    const hasLegacyDetails = Boolean(legacyOrderDetails && legacyOrderDetails.trim()) && items.length === 0;
 
     return (
         <div className="flex flex-col h-screen">
@@ -246,7 +253,7 @@ function ChargeInvoiceDetails() {
             {/* Form Fields */}
             <div id="contentContainer" className="flex-1 flex flex-col gap-4 overflow-y-auto px-6 pt-0 pb-6">
                 <div className="flex gap-4 shrink-0">
-                    <div className="flex flex-col gap-2 w-1/2">
+                    <div className="flex flex-col gap-2 w-1/3">
                         <label className="text-[0.8vw] font-semibold text-gray-700">Company / Customer:</label>
                         <input
                             type="text"
@@ -265,8 +272,22 @@ function ChargeInvoiceDetails() {
                             className="border border-gray-300 rounded-md p-2 text-[0.8vw] focus:outline-[#5FA5DA]"
                         />
                     </div>
+                    {/* Editable Subtotal / Total Amount Field */}
                     <div className="flex flex-col gap-2 w-1/4">
-                        <label className="text-[0.8vw] font-semibold text-gray-700">Discount Amount (₱):</label>
+                        <label className="text-[0.8vw] font-semibold text-gray-700">Amount / Subtotal (₱):</label>
+                        <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={items.length > 0 ? calculatedSubtotal : legacyAmount}
+                            onChange={(e) => setLegacyAmount(e.target.value)}
+                            disabled={items.length > 0}
+                            title={items.length > 0 ? "Calculated from itemized breakdown. Use + Edit Items to change." : "Enter total amount"}
+                            className={`border border-gray-300 rounded-md p-2 text-[0.8vw] font-bold text-gray-800 focus:outline-[#5FA5DA] ${items.length > 0 ? 'bg-gray-100 cursor-not-allowed text-gray-500' : 'bg-white'}`}
+                        />
+                    </div>
+                    <div className="flex flex-col gap-2 w-1/6">
+                        <label className="text-[0.8vw] font-semibold text-gray-700">Discount (₱):</label>
                         <input
                             type="number"
                             step="0.01"
@@ -304,7 +325,7 @@ function ChargeInvoiceDetails() {
                         <div className="flex flex-col gap-2 h-full w-full">
                             <div className="flex items-center justify-between shrink-0">
                                 <label className="text-[0.8vw] font-semibold text-gray-700">
-                                    Itemized Breakdown:
+                                    Itemized Breakdown ({items.length}):
                                 </label>
                                 <button
                                     type="button"
@@ -317,7 +338,7 @@ function ChargeInvoiceDetails() {
 
                             <div className="flex-1 h-full border border-gray-300 rounded-md overflow-y-auto">
                                 <table className="w-full border-collapse">
-                                    <thead className="sticky top-0 z-10">
+                                    <thead className="sticky top-0 z-10 bg-white">
                                         <tr className="bg-gray-50 border-b border-gray-300">
                                             <th className="p-2 text-left text-[0.8vw]">Item</th>
                                             <th className="p-2 text-center text-[0.8vw]">Quantity</th>
@@ -465,7 +486,7 @@ function ChargeInvoiceDetails() {
 
                     <div className="w-px h-5 bg-gray-300"></div>
 
-                    {/* Outstanding Balance (Yet to be paid) */}
+                    {/* Outstanding Balance */}
                     <div className="flex gap-1.5 items-center">
                         <label className="text-gray-700 font-bold text-[0.85vw]">Balance Due:</label>
                         <span className={`text-[1.1vw] font-extrabold ${remainingBalance > 0 ? 'text-[#DC1D10]' : 'text-emerald-600'}`}>

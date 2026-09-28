@@ -40,26 +40,32 @@ export class ChargeInvoiceDTO {
     constructor({
         id = null,
         ciNumber = '',
-        dateIssued = '',
+        customerId = null,
         customerName = '',
+        dateIssued = '',
         legacyOrderDetails = '',
         status = 'unpaid',
+        deliveryStatus = 'pending',
         poNumber = '',
         discountAmount = 0.00,
         subtotal = 0.00,
         amountTotal = 0.00,
+        itemSummary = '',
         items = []
     } = {}) {
         this.id = id;
         this.ciNumber = (ciNumber || '').trim();
-        this.dateIssued = dateIssued || new Date().toISOString().split('T')[0];
+        this.customerId = customerId;
         this.customerName = (customerName || '').trim();
+        this.dateIssued = dateIssued || new Date().toISOString().split('T')[0];
         this.legacyOrderDetails = legacyOrderDetails || '';
         this.status = status || 'unpaid';
+        this.deliveryStatus = deliveryStatus || 'pending';
         this.poNumber = (poNumber || '').trim();
         this.discountAmount = Number(discountAmount) || 0.00;
         this.subtotal = Number(subtotal) || 0.00;
         this.amountTotal = Number(amountTotal) || 0.00;
+        this.itemSummary = itemSummary || '';
         this.items = Array.isArray(items) 
             ? items.map((item) => item instanceof ChargeInvoiceItemDTO ? item : new ChargeInvoiceItemDTO(item))
             : [];
@@ -79,7 +85,6 @@ export class ChargeInvoiceDTO {
         const subtotal = items.length > 0 ? itemsSubtotal : (Number(data.legacy_amount) || 0.00);
 
         const discount = Number(data.discount_amount) || 0.00;
-        // Net amount total after discount
         const amountTotal = Math.max(0, subtotal - discount);
 
         const itemSummary = items.length > 0
@@ -89,15 +94,17 @@ export class ChargeInvoiceDTO {
         return new ChargeInvoiceDTO({
             id: data.id || data.charge_invoice_id,
             ciNumber: data.ci_number,
-            dateIssued: data.date_issued,
+            customerId: data.customer_id,
             customerName: data.customer_name,
+            dateIssued: data.date_issued,
             legacyOrderDetails: data.legacy_order_details || '',
-            itemSummary: itemSummary,
-            status: data.status,
+            status: data.status || 'unpaid',
+            deliveryStatus: data.delivery_status || 'pending',
             poNumber: data.po_number || '',
             discountAmount: discount,
             subtotal: subtotal,
             amountTotal: amountTotal,
+            itemSummary: itemSummary,
             items: items
         });
     }
@@ -105,15 +112,16 @@ export class ChargeInvoiceDTO {
     toDatabase(customerId = null) {
         return {
             ci_number: this.ciNumber,
-            date_issued: this.dateIssued,
-            customer_id: customerId,
+            customer_id: customerId || this.customerId || null,
             customer_name: this.customerName,
+            date_issued: this.dateIssued,
             legacy_order_details: this.legacyOrderDetails || null,
-            // Keep the gross subtotal as legacy_amount (discount is stored in discount_amount)
             legacy_amount: this.subtotal || this.amountTotal || 0.00,
             status: this.status,
+            delivery_status: this.deliveryStatus,
             po_number: this.poNumber || null,
-            discount_amount: this.discountAmount
+            discount_amount: this.discountAmount,
+            updated_at: new Date().toISOString()
         };
     }
 }

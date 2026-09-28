@@ -58,6 +58,7 @@ function App() {
               <Route path="/delivery-receipts-details/:id" element={<DeliveryReceiptsDetails />} />
               <Route path="/sales-invoices" element={<SalesInvoicesMain />} />
               <Route path="/sales-invoices-details" element={<SalesInvoicesDetails />} />
+              <Route path="/sales-invoices-details/:id" element={<SalesInvoicesDetails />} />
             </Routes>
           </main>
         </div>

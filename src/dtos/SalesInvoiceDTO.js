@@ -1,17 +1,20 @@
+// src/dtos/SalesInvoiceDTO.js
+
 export class SalesInvoiceItemDTO {
     constructor({ id = null, name = '', quantity = 1, price = 0.00 }) {
         this.id = id;
-        this.name = name.trim();
+        this.name = (name || '').trim();
         this.quantity = Number(quantity) || 1;
         this.price = Number(price) || 0.00;
     }
 
     static fromDatabase(data) {
+        if (!data) return null;
         return new SalesInvoiceItemDTO({
             id: data.id,
-            name: data.item_name,
-            quantity: data.quantity,
-            price: data.unit_price
+            name: data.item_name || data.name || '',
+            quantity: data.quantity || 1,
+            price: data.unit_price || data.price || 0.00
         });
     }
 
@@ -26,14 +29,28 @@ export class SalesInvoiceItemDTO {
 }
 
 export class SalesInvoiceDTO {
-    constructor({ id = null, siNumber = '', dateIssued = '', customerName = '', details = '', amount = 0.00, items = [] }) {
+    constructor({ 
+        id = null, 
+        siNumber = '', 
+        customerId = null,
+        customerName = '', 
+        dateIssued = '', 
+        details = '', 
+        amount = 0.00, 
+        deliveryStatus = 'pending',
+        items = [] 
+    }) {
         this.id = id;
-        this.siNumber = siNumber.trim();
+        this.siNumber = (siNumber || '').trim();
+        this.customerId = customerId;
+        this.customerName = (customerName || '').trim();
         this.dateIssued = dateIssued || new Date().toISOString().split('T')[0];
-        this.customerName = customerName.trim();
-        this.details = details;
+        this.details = details || '';
         this.amount = Number(amount) || 0.00;
-        this.items = items.map((item) => new SalesInvoiceItemDTO(item));
+        this.deliveryStatus = deliveryStatus || 'pending';
+        this.items = (items || []).map((item) => 
+            item instanceof SalesInvoiceItemDTO ? item : new SalesInvoiceItemDTO(item)
+        );
     }
 
     static fromDatabase(data) {
@@ -41,10 +58,12 @@ export class SalesInvoiceDTO {
         return new SalesInvoiceDTO({
             id: data.id,
             siNumber: data.si_number,
-            dateIssued: data.date_issued,
+            customerId: data.customer_id,
             customerName: data.customer_name,
-            details: data.details || '',
-            amount: data.amount,
+            dateIssued: data.date_issued,
+            details: data.details || data.legacy_order_details || '',
+            amount: Number(data.amount ?? data.legacy_amount ?? 0),
+            deliveryStatus: data.delivery_status || 'pending',
             items: data.sales_invoice_items ? data.sales_invoice_items.map(SalesInvoiceItemDTO.fromDatabase) : []
         });
     }
@@ -53,10 +72,14 @@ export class SalesInvoiceDTO {
         return {
             si_number: this.siNumber,
             date_issued: this.dateIssued,
-            customer_id: customerId,
+            customer_id: customerId || this.customerId || null,
             customer_name: this.customerName,
             details: this.details || null,
-            amount: this.amount
+            legacy_order_details: this.details || null,
+            amount: this.amount,
+            legacy_amount: this.amount,
+            delivery_status: this.deliveryStatus,
+            updated_at: new Date().toISOString()
         };
     }
 }

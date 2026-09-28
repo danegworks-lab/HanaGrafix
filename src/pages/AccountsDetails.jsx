@@ -1,3 +1,4 @@
+// src/pages/AccountsDetails.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -94,10 +95,11 @@ function AccountDetails() {
     };
 
     const handleOrderClick = (order) => {
+        const targetId = order.id || order.dbId;
         if (order.type === 'CI') {
-            navigate(`/charge-invoice-details/${order.id}`);
+            navigate(`/charge-invoice-details/${targetId}`);
         } else {
-            navigate(`/sales-invoices-details/${order.id}`);
+            navigate(`/sales-invoices-details/${targetId}`);
         }
     };
 
@@ -334,7 +336,11 @@ function AccountDetails() {
                                         <tr key={order.id} className="hover:bg-[#F4F8FB] transition-colors">
                                             <td className="p-3 font-semibold text-gray-800">{order.id}</td>
                                             <td className="p-3">
-                                                <span className="px-2 py-0.5 text-[0.65vw] font-bold bg-[#EEF8FF] text-[#5FA5DA] border border-[#5FA5DA]/40 rounded">
+                                                <span className={`px-2 py-0.5 text-[0.65vw] font-bold rounded ${
+                                                    order.type === 'SI' 
+                                                        ? 'bg-purple-50 text-purple-600 border border-purple-200' 
+                                                        : 'bg-[#EEF8FF] text-[#5FA5DA] border border-[#5FA5DA]/40'
+                                                }`}>
                                                     {order.type}
                                                 </span>
                                             </td>
@@ -390,7 +396,11 @@ function AccountDetails() {
                                         <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                                             <td className="p-3 font-semibold text-gray-700">{order.id}</td>
                                             <td className="p-3">
-                                                <span className="px-2 py-0.5 text-[0.65vw] font-bold bg-gray-100 text-gray-600 border border-gray-300 rounded">
+                                                <span className={`px-2 py-0.5 text-[0.65vw] font-bold rounded ${
+                                                    order.type === 'SI' 
+                                                        ? 'bg-purple-50 text-purple-600 border border-purple-200' 
+                                                        : 'bg-gray-100 text-gray-600 border border-gray-300'
+                                                }`}>
                                                     {order.type}
                                                 </span>
                                             </td>
@@ -425,7 +435,6 @@ function AccountDetails() {
             {/* Toolbar */}
             <div id="toolBar" className="flex items-center justify-between p-6 border-t border-gray-200 shrink-0 bg-white">
                 <div className="flex gap-3 items-center text-[0.9vw]">
-                    {/* Back Button positioned to the left of Tools */}
                     <button
                         onClick={() => navigate('/accounts')}
                         className="flex items-center gap-1.5 px-3 py-1 text-[0.8vw] rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors cursor-pointer"
@@ -441,7 +450,13 @@ function AccountDetails() {
                         onClick={() => navigate('/charge-invoices')}
                         className="px-3 py-1 text-[0.8vw] rounded-full border-2 border-[#5FA5DA] cursor-pointer bg-[#F4F8FB] text-[#5FA5DA] font-medium hover:bg-[#5FA5DA] hover:text-white transition-colors"
                     >
-                        + Create New Charge Invoice
+                        + Create Charge Invoice
+                    </button>
+                    <button 
+                        onClick={() => navigate('/sales-invoices')}
+                        className="px-3 py-1 text-[0.8vw] rounded-full border-2 border-purple-400 cursor-pointer bg-purple-50 text-purple-600 font-medium hover:bg-purple-600 hover:text-white transition-colors"
+                    >
+                        + Create Sales Invoice
                     </button>
                 </div>
                 <div className="flex gap-2 items-center font-bold text-[0.9vw]">

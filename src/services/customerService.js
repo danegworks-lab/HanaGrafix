@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { CustomerDTO } from '../dtos/CustomerDTO';
 
 export const customerService = {
-    // 1. Fetch Customers with aggregated order counts & outstanding balance
+    // 1. Fetch Customers with aggregated order counts & outstanding balance across CI & SI
     async getCustomersWithStats() {
         const { data, error } = await supabase
             .from('customers')
@@ -18,6 +18,11 @@ export const customerService = {
                         quantity,
                         unit_price
                     )
+                ),
+                sales_invoices (
+                    id,
+                    amount,
+                    legacy_amount
                 )
             `)
             .order('name', { ascending: true });
@@ -28,11 +33,12 @@ export const customerService = {
         }
 
         return (data || []).map((customerRecord) => {
-            const invoices = customerRecord.charge_invoices || [];
-            const totalOrders = invoices.length;
+            const chargeInvoices = customerRecord.charge_invoices || [];
+            const salesInvoices = customerRecord.sales_invoices || [];
+            const totalOrders = chargeInvoices.length + salesInvoices.length;
 
-            // Sum only unpaid and partial invoice balances
-            const unpaidBalance = invoices
+            // Sum only unpaid and partial invoice balances from charge invoices
+            const unpaidBalance = chargeInvoices
                 .filter((inv) => inv.status === 'unpaid' || inv.status === 'partial')
                 .reduce((sum, inv) => {
                     const itemsSubtotal = (inv.charge_invoice_items || []).reduce(
@@ -105,39 +111,68 @@ export const customerService = {
         return CustomerDTO.fromDatabase(created);
     },
 
-    // Fetch single customer with all linked charge invoices & items
+    // 4. Fetch single customer with all linked charge invoices and sales invoices
     async getCustomerAccountDetails(customerId) {
         if (!customerId) throw new Error("Customer ID is required");
 
-        const { data, error } = await supabase
+        // Fetch Customer Profile
+        const { data: customer, error: customerError } = await supabase
             .from('customers')
-            .select(`
-                *,
-                charge_invoices (
-                    id,
-                    ci_number,
-                    date_issued,
-                    status,
-                    legacy_amount,
-                    discount_amount,
-                    charge_invoice_items (
-                        quantity,
-                        unit_price
-                    )
-                )
-            `)
+            .select('*')
             .eq('id', customerId)
             .maybeSingle();
 
-        if (error) {
-            console.error('[customerService] Error fetching customer account details:', error);
-            throw error;
+        if (customerError) {
+            console.error('[customerService] Error fetching customer account details:', customerError);
+            throw customerError;
         }
 
-        if (!data) return null;
+        if (!customer) return null;
 
-        // Map and calculate amounts for linked charge invoices
-        const orders = (data.charge_invoices || []).map((ci) => {
+        // Fetch Charge Invoices (match by customer_id or customer_name fallback)
+        const { data: chargeInvoices = [], error: ciError } = await supabase
+            .from('charge_invoices')
+            .select(`
+                id,
+                ci_number,
+                date_issued,
+                status,
+                legacy_amount,
+                discount_amount,
+                charge_invoice_items (
+                    quantity,
+                    unit_price
+                )
+            `)
+            .or(`customer_id.eq.${customerId},customer_name.ilike.${customer.name}`);
+
+        if (ciError) {
+            console.warn('[customerService] Error loading charge invoices for customer:', ciError);
+        }
+
+        // Fetch Sales Invoices (match by customer_id or customer_name fallback)
+        let salesInvoices = [];
+        try {
+            const { data: siData, error: siError } = await supabase
+                .from('sales_invoices')
+                .select(`
+                    id,
+                    si_number,
+                    date_issued,
+                    amount,
+                    legacy_amount
+                `)
+                .or(`customer_id.eq.${customerId},customer_name.ilike.${customer.name}`);
+
+            if (!siError && siData) {
+                salesInvoices = siData;
+            }
+        } catch (siErr) {
+            console.warn('[customerService] Error loading sales invoices for customer:', siErr);
+        }
+
+        // Map Charge Invoices (CI)
+        const mappedCI = (chargeInvoices || []).map((ci) => {
             const itemsSubtotal = (ci.charge_invoice_items || []).reduce(
                 (sum, item) => sum + (Number(item.quantity) * Number(item.unit_price)),
                 0
@@ -149,19 +184,36 @@ export const customerService = {
                 id: ci.ci_number || ci.id,
                 rawId: ci.id,
                 type: 'CI',
-                date: ci.date_issued,
+                date: ci.date_issued || '',
                 amount: totalAmount,
                 status: ci.status || 'unpaid'
             };
         });
 
+        // Map Sales Invoices (SI) - Official receipts default to 'completed'
+        const mappedSI = (salesInvoices || []).map((si) => ({
+            id: si.si_number || si.id,
+            rawId: si.id,
+            type: 'SI',
+            date: si.date_issued || '',
+            amount: Number(si.amount ?? si.legacy_amount ?? 0),
+            status: 'completed'
+        }));
+
+        // Combine and sort chronologically (most recent first)
+        const combinedOrders = [...mappedCI, ...mappedSI].sort((a, b) => {
+            const timeA = new Date(a.date || 0).getTime();
+            const timeB = new Date(b.date || 0).getTime();
+            return timeB - timeA;
+        });
+
         return {
-            customer: CustomerDTO.fromDatabase(data),
-            orders
+            customer: CustomerDTO.fromDatabase(customer),
+            orders: combinedOrders
         };
     },
 
-    // Update customer info
+    // 5. Update customer info
     async updateCustomer(customerId, customerData) {
         if (!customerId) throw new Error("Customer ID is required");
 
@@ -170,9 +222,10 @@ export const customerService = {
             .update({
                 name: customerData.customerName,
                 tin: customerData.tin || null,
-                address: customerData.businessAddress || null,
+                address: customerData.businessAddress || customerData.address || null,
                 contact_person: customerData.contactPerson || null,
-                phone: customerData.contactNumber || null
+                phone: customerData.contactNumber || customerData.phone || null,
+                updated_at: new Date().toISOString()
             })
             .eq('id', customerId)
             .select()
@@ -186,7 +239,7 @@ export const customerService = {
         return CustomerDTO.fromDatabase(data);
     },
 
-    // Delete customer
+    // 6. Delete customer
     async deleteCustomer(customerId) {
         if (!customerId) throw new Error("Customer ID is required");
 

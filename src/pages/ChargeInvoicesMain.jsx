@@ -1,3 +1,4 @@
+// src/pages/ChargeInvoicesMain.jsx
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -6,12 +7,13 @@ import DeliveryReceiptStatusSelector from '../components/DeliveryReceiptStatusSe
 import ChargeInvoiceDetailsModal from '../components/ChargeInvoiceDetailsModal';
 import SpreadsheetUploadModal from '../components/SpreadsheetUploadModal';
 import { chargeInvoiceService } from '../services/chargeInvoiceService';
+import { customerService } from '../services/customerService';
 
 function CImain() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
 
-    // TanStack Query: Cached Data Fetching
+    // TanStack Query: Cached Data Fetching with Background Polling
     const { 
         data: invoices = [], 
         isLoading: loading,
@@ -21,6 +23,7 @@ function CImain() {
         queryFn: () => chargeInvoiceService.getChargeInvoices(),
         staleTime: 0,
         refetchOnMount: 'always',
+        refetchInterval: 10000, // Polls every 10 seconds to catch background Supabase trigger updates
     });
     
     // UI, Filter & Tool States
@@ -132,11 +135,30 @@ function CImain() {
         setDeliveryStatusInput('pending');
     };
 
-    // Mutation: Create Invoice
+    // Mutation: Create Invoice with Customer Resolution
     const createInvoiceMutation = useMutation({
-        mutationFn: (newInvoice) => chargeInvoiceService.createChargeInvoice(newInvoice),
+        mutationFn: async (newInvoice) => {
+            let customerId = null;
+            const compName = newInvoice.customerName?.trim();
+
+            // Automatically resolve or register in customers table
+            if (compName && compName.toLowerCase() !== 'walk-in' && compName.toLowerCase() !== 'cancelled') {
+                const customer = await customerService.findOrCreateCustomer(compName);
+                if (customer) {
+                    customerId = customer.id;
+                }
+            }
+
+            return chargeInvoiceService.createChargeInvoice({
+                ...newInvoice,
+                customerId,
+                customer_id: customerId
+            });
+        },
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['charge_invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['customer_accounts'] });
+            queryClient.invalidateQueries({ queryKey: ['customer_details'] });
             resetFormFields();
 
             if (isIdChaining && entryMode === 'auto') {
@@ -207,7 +229,7 @@ function CImain() {
         createInvoiceMutation.mutate({
             ciNumber: finalCiNumber,
             dateIssued: dateInput,
-            customerName: companyInput,
+            customerName: companyInput.trim(),
             legacyOrderDetails: finalLegacyDetails,
             status: paymentStatusInput,
             deliveryStatus: deliveryStatusInput,
@@ -351,7 +373,7 @@ function CImain() {
         <div className="flex flex-col h-screen">
             {/* Header */}
             <div id="pageHeader" className="flex items-center justify-between p-6 shrink-0">
-                <h1>Charge Invoices</h1>
+                <h1 className="text-xl font-bold">Charge Invoices</h1>
                 <div className="flex items-center max-w-62.5 gap-2.5 bg-[#F4F8FB] text-[#5FA5DA] text-[0.8vw] border-3 border-[#5FA5DA] rounded-full px-4 py-2">
                     <i className="fal fa-search"></i>
                     <input

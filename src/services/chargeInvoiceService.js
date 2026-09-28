@@ -1,3 +1,4 @@
+// src/services/chargeInvoiceService.js
 import { supabase } from '../lib/supabaseClient';
 import { customerService } from './customerService';
 import { ChargeInvoiceDTO } from '../dtos/ChargeInvoiceDTO';
@@ -21,11 +22,10 @@ export const chargeInvoiceService = {
         return data.map(ChargeInvoiceDTO.fromDatabase);
     },
 
-    // 2. READ BY ID (single invoice with line items, DRs, and CRs)
+    // 2. READ BY ID (with line items, customer profile, DRs, and CRs)
     async getChargeInvoiceById(identifier) {
         if (!identifier) throw new Error("No invoice identifier provided.");
 
-        // Determine if identifier is a UUID or CI Number (e.g. '2026-1-751')
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
         const queryColumn = isUuid ? 'id' : 'ci_number';
 
@@ -47,6 +47,24 @@ export const chargeInvoiceService = {
             throw new Error(`Charge Invoice "${identifier}" could not be found.`);
         }
 
+        // Fetch customer profile details (TIN, Address) from customers table
+        let customerProfile = { tin: '', address: '' };
+        if (data.customer_id) {
+            const { data: cust } = await supabase
+                .from('customers')
+                .select('tin, address')
+                .eq('id', data.customer_id)
+                .maybeSingle();
+            if (cust) customerProfile = cust;
+        } else if (data.customer_name) {
+            const { data: cust } = await supabase
+                .from('customers')
+                .select('tin, address')
+                .ilike('name', data.customer_name.trim())
+                .maybeSingle();
+            if (cust) customerProfile = cust;
+        }
+
         // Fetch receipts using the resolved database UUID (data.id)
         const [crRes, drRes] = await Promise.all([
             supabase
@@ -65,6 +83,8 @@ export const chargeInvoiceService = {
 
         return {
             ...invoiceDto,
+            tin: customerProfile.tin || '',
+            businessAddress: customerProfile.address || '',
             invoice: invoiceDto,
             collectionReceipts: crRes.data || [],
             deliveryReceipts: drRes.data || []
@@ -75,6 +95,15 @@ export const chargeInvoiceService = {
     async createChargeInvoice(input) {
         const dto = new ChargeInvoiceDTO(input);
         const customer = await customerService.findOrCreateCustomer(dto.customerName);
+
+        // Update customer profile if TIN or Address is provided during creation
+        if (customer && (input.tin || input.businessAddress)) {
+            await customerService.updateCustomer(customer.id, {
+                customerName: dto.customerName,
+                tin: input.tin || null,
+                businessAddress: input.businessAddress || null
+            });
+        }
 
         const { data: created, error } = await supabase
             .from('charge_invoices')
@@ -95,22 +124,47 @@ export const chargeInvoiceService = {
         return ChargeInvoiceDTO.fromDatabase(created);
     },
 
-    // 4. UPDATE (Header and Line Items)
-    async updateChargeInvoice(id, input) {
-        const dto = new ChargeInvoiceDTO({ ...input, id });
+    // 4. UPDATE (Header, Line Items, and Customer Profile)
+    async updateChargeInvoice(identifier, input) {
+        if (!identifier) throw new Error("No invoice identifier provided for update.");
+
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+        
+        // Resolve true database UUID if given a CI number
+        let dbId = identifier;
+        if (!isUuid) {
+            const { data: existing, error: findErr } = await supabase
+                .from('charge_invoices')
+                .select('id')
+                .eq('ci_number', identifier)
+                .single();
+            if (findErr) throw findErr;
+            dbId = existing.id;
+        }
+
+        const dto = new ChargeInvoiceDTO({ ...input, id: dbId });
         const customer = await customerService.findOrCreateCustomer(dto.customerName);
+
+        // Persist TIN and Address updates to the customers table
+        if (customer && (input.tin !== undefined || input.businessAddress !== undefined)) {
+            await customerService.updateCustomer(customer.id, {
+                customerName: dto.customerName,
+                tin: input.tin || null,
+                businessAddress: input.businessAddress || null
+            });
+        }
 
         const { error: updateErr } = await supabase
             .from('charge_invoices')
             .update(dto.toDatabase(customer?.id))
-            .eq('id', id);
+            .eq('id', dbId);
 
         if (updateErr) throw updateErr;
 
         if (dto.items) {
-            await supabase.from('charge_invoice_items').delete().eq('charge_invoice_id', id);
+            await supabase.from('charge_invoice_items').delete().eq('charge_invoice_id', dbId);
             if (dto.items.length > 0) {
-                const itemsPayload = dto.items.map((i) => i.toDatabase(id));
+                const itemsPayload = dto.items.map((i) => i.toDatabase(dbId));
                 const { error: itemErr } = await supabase
                     .from('charge_invoice_items')
                     .insert(itemsPayload);
@@ -118,7 +172,7 @@ export const chargeInvoiceService = {
             }
         }
 
-        return this.getChargeInvoiceById(id);
+        return this.getChargeInvoiceById(dbId);
     },
 
     // 5. UPDATE STATUS ONLY (inline row status change)
@@ -131,7 +185,7 @@ export const chargeInvoiceService = {
 
         const { data, error } = await supabase
             .from('charge_invoices')
-            .update({ status: normalizedStatus })
+            .update({ status: normalizedStatus, updated_at: new Date().toISOString() })
             .eq(queryColumn, identifier)
             .select();
 
@@ -144,22 +198,28 @@ export const chargeInvoiceService = {
     },
 
     // 6. DELETE
-    async deleteChargeInvoice(id) {
+    async deleteChargeInvoice(identifier) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
+        const queryColumn = isUuid ? 'id' : 'ci_number';
+
         const { error } = await supabase
             .from('charge_invoices')
             .delete()
-            .eq('id', id);
+            .eq(queryColumn, identifier);
 
         if (error) throw error;
     },
 
+    // 7. UPDATE DELIVERY STATUS
     async updateDeliveryStatus(identifier, deliveryStatus) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
-        const query = supabase.from('charge_invoices').update({ delivery_status: deliveryStatus });
-        
-        const { data, error } = isUuid 
-            ? await query.eq('id', identifier).select() 
-            : await query.eq('ci_number', identifier).select();
+        const queryColumn = isUuid ? 'id' : 'ci_number';
+
+        const { data, error } = await supabase
+            .from('charge_invoices')
+            .update({ delivery_status: deliveryStatus, updated_at: new Date().toISOString() })
+            .eq(queryColumn, identifier)
+            .select();
 
         if (error) {
             console.error('[chargeInvoiceService] Error updating delivery status:', error);

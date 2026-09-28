@@ -2,15 +2,18 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import DeliveryReceiptStatusSelector from '../components/DeliveryReceiptStatusSelector';
 import ChargeInvoiceDetailsModal from '../components/ChargeInvoiceDetailsModal';
 import SpreadsheetUploadModal from '../components/SpreadsheetUploadModal';
 import { supabase } from '../lib/supabaseClient';
+import { customerService } from '../services/customerService';
+import { salesInvoiceService } from '../services/salesInvoiceService';
 
 function SalesInvoicesMain() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
 
-    // 1. TanStack Query: Fetch Sales Invoices from Supabase
+    // 1. TanStack Query: Fetch Sales Invoices from Supabase with polling
     const { 
         data: invoices = [], 
         isLoading: loading,
@@ -18,13 +21,11 @@ function SalesInvoicesMain() {
     } = useQuery({
         queryKey: ['sales_invoices'],
         queryFn: async () => {
-            // First attempt: fetch with items if relationship exists
             let { data, error } = await supabase
                 .from('sales_invoices')
                 .select(`*, sales_invoice_items (*)`)
                 .order('date_issued', { ascending: false });
 
-            // Fallback: If sales_invoice_items relation is missing, fetch sales_invoices alone
             if (error) {
                 console.warn('[SalesInvoicesMain] Fetch with items failed, falling back to base table:', error.message);
                 const baseRes = await supabase
@@ -42,29 +43,37 @@ function SalesInvoicesMain() {
             return (data || []).map((row) => ({
                 id: row.id,
                 siNumber: row.si_number || row.siNumber,
+                customerId: row.customer_id,
                 dateIssued: row.date_issued || row.dateIssued,
                 customerName: row.customer_name || row.customerName || 'Walk-in',
                 legacyOrderDetails: row.legacy_order_details || row.details || row.legacyOrderDetails || '',
                 amountTotal: Number(row.amount ?? row.legacy_amount ?? row.amount_total ?? 0),
+                deliveryStatus: row.delivery_status || 'pending',
                 items: row.sales_invoice_items || row.items || []
             }));
         },
         staleTime: 0,
         refetchOnMount: 'always',
-        refetchInterval: 10000 // Polling every 10 seconds to catch background updates
+        refetchInterval: 10000 // Automatically syncs when delivery trigger changes status in DB
     });
 
-    // Customer directory for provisioning checks
+    // Fetch existing customer accounts directory from Supabase
+    const { data: customerAccounts = [] } = useQuery({
+        queryKey: ['customer_accounts'],
+        queryFn: () => customerService.getCustomersWithStats(),
+        staleTime: 60000
+    });
+
     const existingCustomers = useMemo(() => {
-        const uniqueNames = new Set(
-            invoices.map((inv) => (inv.customerName || '').trim()).filter(Boolean)
-        );
-        return Array.from(uniqueNames);
-    }, [invoices]);
+        const directoryNames = (customerAccounts || []).map((c) => (c.name || '').trim().toLowerCase());
+        const invoiceNames = invoices.map((inv) => (inv.customerName || '').trim().toLowerCase());
+        return Array.from(new Set([...directoryNames, ...invoiceNames])).filter(Boolean);
+    }, [customerAccounts, invoices]);
 
     // Search & Filter States
     const [searchTerm, setSearchTerm] = useState('');
     const [filterDate, setFilterDate] = useState('');
+    const [filterDeliveryStatus, setFilterDeliveryStatus] = useState('all');
     const [isInputRowOpen, setIsInputRowOpen] = useState(false);
     const [isIdChaining, setIsIdChaining] = useState(true);
 
@@ -87,6 +96,7 @@ function SalesInvoicesMain() {
     const [customerInput, setCustomerInput] = useState('');
     const [detailsInput, setDetailsInput] = useState('');
     const [amountInput, setAmountInput] = useState('');
+    const [deliveryStatusInput, setDeliveryStatusInput] = useState('pending');
     const [itemizedList, setItemizedList] = useState([]);
 
     // Modals
@@ -94,14 +104,12 @@ function SalesInvoicesMain() {
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isCreateAccountPromptOpen, setIsCreateAccountPromptOpen] = useState(false);
 
-    // Pad calculation: 1-50 = Pad 1, 51-100 = Pad 2, etc.
     const computePadNumber = (siNum) => {
         const num = parseInt(siNum, 10);
         if (isNaN(num) || num < 1) return 1;
         return Math.floor((num - 1) / 50) + 1;
     };
 
-    // Auto-calculate the next sequence number from existing database records
     const computeNextSequenceFromData = (targetYear) => {
         const yearStr = String(targetYear);
         let maxSi = 0;
@@ -165,22 +173,37 @@ function SalesInvoicesMain() {
         setCustomerInput('');
         setDetailsInput('');
         setAmountInput('');
+        setDeliveryStatusInput('pending');
         setItemizedList([]);
     };
 
-    // 2. Mutation: Create Sales Invoice in Database (uses schema columns `amount` and `details`)
+    // 2. Mutation: Create Sales Invoice
     const createInvoiceMutation = useMutation({
         mutationFn: async (payload) => {
+            let assignedCustomerId = payload.customerId || null;
+            const cName = payload.customerName?.trim();
+
+            if (cName && cName.toLowerCase() !== 'walk-in' && cName.toLowerCase() !== 'cancelled') {
+                if (payload.autoCreateAccount || !assignedCustomerId) {
+                    const resolvedCustomer = await customerService.findOrCreateCustomer(cName);
+                    if (resolvedCustomer) {
+                        assignedCustomerId = resolvedCustomer.id;
+                    }
+                }
+            }
+
             const { data: created, error } = await supabase
                 .from('sales_invoices')
                 .insert([{
                     si_number: payload.siNumber,
-                    date_issued: payload.dateIssued,
+                    customer_id: assignedCustomerId,
                     customer_name: payload.customerName,
+                    date_issued: payload.dateIssued,
                     details: payload.legacyOrderDetails,
                     legacy_order_details: payload.legacyOrderDetails,
                     amount: payload.amountTotal,
-                    legacy_amount: payload.amountTotal
+                    legacy_amount: payload.amountTotal,
+                    delivery_status: payload.deliveryStatus || 'pending'
                 }])
                 .select()
                 .single();
@@ -206,6 +229,8 @@ function SalesInvoicesMain() {
         },
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ['sales_invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['customer_accounts'] });
+            queryClient.invalidateQueries({ queryKey: ['customer_details'] });
             resetFormFields();
 
             if (isIdChaining && entryMode === 'auto') {
@@ -230,6 +255,14 @@ function SalesInvoicesMain() {
         }
     });
 
+    const handleDeliveryStatusUpdate = (identifier, newDeliveryStatus) => {
+        salesInvoiceService.updateDeliveryStatus(identifier, newDeliveryStatus).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['sales_invoices'] });
+        }).catch((err) => {
+            alert(`Failed to update delivery status: ${err.message}`);
+        });
+    };
+
     // 3. Mutation: Delete Sales Invoice
     const deleteInvoiceMutation = useMutation({
         mutationFn: async (id) => {
@@ -246,25 +279,24 @@ function SalesInvoicesMain() {
         onError: (err) => alert(`Failed to delete invoice: ${err.message}`)
     });
 
-    // Save Row Logic
     const handleSaveRowInvoice = () => {
-        if (!customerInput.trim()) {
+        const trimmedName = customerInput.trim();
+        if (!trimmedName) {
             alert('Please enter a Customer Name before saving.');
             return;
         }
 
-        const customerExists = existingCustomers.some(
-            (name) => name.toLowerCase() === customerInput.trim().toLowerCase()
-        );
+        const isSpecial = trimmedName.toLowerCase() === 'walk-in' || trimmedName.toLowerCase() === 'cancelled';
+        const customerExists = existingCustomers.includes(trimmedName.toLowerCase());
 
-        if (!customerExists && existingCustomers.length > 0) {
+        if (!customerExists && !isSpecial && existingCustomers.length > 0) {
             setIsCreateAccountPromptOpen(true);
         } else {
-            executeSaveInvoice();
+            executeSaveInvoice(false);
         }
     };
 
-    const executeSaveInvoice = () => {
+    const executeSaveInvoice = (autoCreateAccount = false) => {
         let finalSiNumber = '';
         if (entryMode === 'manual') {
             const rawVal = siIdInput.trim();
@@ -297,15 +329,17 @@ function SalesInvoicesMain() {
             siNumber: finalSiNumber,
             dateIssued: dateInput,
             customerName: customerInput.trim(),
+            autoCreateAccount: autoCreateAccount,
             legacyOrderDetails: finalLegacyDetails,
             amountTotal: parseFloat(amountInput) || 0,
+            deliveryStatus: deliveryStatusInput,
             items: finalItems
         });
     };
 
     const handleConfirmAccountCreation = () => {
         setIsCreateAccountPromptOpen(false);
-        executeSaveInvoice();
+        executeSaveInvoice(true);
     };
 
     const handleDeleteInvoice = (id, siNumber) => {
@@ -353,11 +387,13 @@ function SalesInvoicesMain() {
             const si = (inv.siNumber || '').toLowerCase();
             const cust = (inv.customerName || '').toLowerCase();
             const details = (inv.legacyOrderDetails || '').toLowerCase();
+            const dStatus = inv.deliveryStatus || 'pending';
 
             const matchesSearch = si.includes(term) || cust.includes(term) || details.includes(term);
             const matchesDate = !filterDate || inv.dateIssued === filterDate;
+            const matchesDelivery = filterDeliveryStatus === 'all' || dStatus === filterDeliveryStatus;
 
-            return matchesSearch && matchesDate;
+            return matchesSearch && matchesDate && matchesDelivery;
         });
 
         return filtered.sort((a, b) => {
@@ -383,7 +419,7 @@ function SalesInvoicesMain() {
             if (strA > strB) return direction === 'asc' ? 1 : -1;
             return 0;
         });
-    }, [invoices, searchTerm, filterDate, sortConfig]);
+    }, [invoices, searchTerm, filterDate, filterDeliveryStatus, sortConfig]);
 
     const handleSpreadsheetUpload = () => {
         queryClient.invalidateQueries({ queryKey: ['sales_invoices'] });
@@ -421,7 +457,7 @@ function SalesInvoicesMain() {
                                 </div>
                             </th>
                             <th 
-                                className="w-[10%] px-3 py-2 text-center cursor-pointer hover:bg-gray-50 group transition-colors"
+                                className="w-[9%] px-3 py-2 text-center cursor-pointer hover:bg-gray-50 group transition-colors"
                                 onClick={() => handleSort('dateIssued')}
                             >
                                 <div className="inline-flex items-center justify-center font-semibold text-gray-700">
@@ -429,7 +465,7 @@ function SalesInvoicesMain() {
                                 </div>
                             </th>
                             <th 
-                                className="w-[20%] px-3 py-2 text-left cursor-pointer hover:bg-gray-50 group transition-colors"
+                                className="w-[18%] px-3 py-2 text-left cursor-pointer hover:bg-gray-50 group transition-colors"
                                 onClick={() => handleSort('customerName')}
                             >
                                 <div className="inline-flex items-center font-semibold text-gray-700">
@@ -438,14 +474,22 @@ function SalesInvoicesMain() {
                             </th>
                             <th className="px-3 py-2 text-left font-semibold text-gray-700">Details</th>
                             <th 
-                                className="w-[12%] px-3 py-2 text-right cursor-pointer hover:bg-gray-50 group transition-colors"
+                                className="w-[11%] px-3 py-2 text-right cursor-pointer hover:bg-gray-50 group transition-colors"
                                 onClick={() => handleSort('amountTotal')}
                             >
                                 <div className="inline-flex items-center justify-end font-semibold text-gray-700">
                                     Amount {renderSortIcon('amountTotal')}
                                 </div>
                             </th>
-                            <th className="w-[8%] px-3 py-2 font-semibold text-gray-700 text-center">Actions</th>
+                            <th 
+                                className="w-[10%] px-3 py-2 text-center cursor-pointer hover:bg-gray-50 group transition-colors"
+                                onClick={() => handleSort('deliveryStatus')}
+                            >
+                                <div className="inline-flex items-center justify-center font-semibold text-gray-700">
+                                    Delivery {renderSortIcon('deliveryStatus')}
+                                </div>
+                            </th>
+                            <th className="w-[7%] px-3 py-2 font-semibold text-gray-700 text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -554,6 +598,14 @@ function SalesInvoicesMain() {
                                         className="w-full bg-[#EEF8FF] border-b border-[#EAEAEA] px-2 py-1 text-right text-[0.78vw] focus:outline-none"
                                     />
                                 </td>
+                                <td className="px-2 py-2">
+                                    <DeliveryReceiptStatusSelector
+                                        initialStatus={deliveryStatusInput}
+                                        value={deliveryStatusInput}
+                                        onChange={setDeliveryStatusInput}
+                                        isChargeInvoice={false}
+                                    />
+                                </td>
                                 <td className="px-3 py-2 text-md">
                                     <div className="flex items-center justify-center gap-2">
                                         <i
@@ -575,10 +627,10 @@ function SalesInvoicesMain() {
                             </tr>
                         )}
 
-                        {/* Database Records & Centered Empty State */}
+                        {/* Database Records */}
                         {loading && invoices.length === 0 ? (
                             <tr>
-                                <td colSpan="6" className="p-16 text-center text-gray-500">
+                                <td colSpan="7" className="p-16 text-center text-gray-500">
                                     <div className="flex flex-col items-center justify-center gap-3">
                                         <i className="fal fa-spinner-third fa-spin text-3xl text-[#5FA5DA]"></i>
                                         <span className="text-[0.9vw] font-medium text-gray-600">Loading sales invoices from database...</span>
@@ -587,7 +639,7 @@ function SalesInvoicesMain() {
                             </tr>
                         ) : processedInvoices.length === 0 ? (
                             <tr>
-                                <td colSpan="6" className="p-16 text-center">
+                                <td colSpan="7" className="p-16 text-center">
                                     <div className="flex flex-col items-center justify-center gap-3 py-10 select-none">
                                         <div className="w-20 h-20 rounded-full bg-[#F4F8FB] border border-[#5FA5DA]/30 flex items-center justify-center text-[#5FA5DA] shadow-xs">
                                             <i className="fal fa-file-invoice-dollar text-4xl"></i>
@@ -595,8 +647,8 @@ function SalesInvoicesMain() {
                                         <div className="flex flex-col gap-1 items-center">
                                             <span className="text-base font-bold text-gray-700">No Sales Invoices Yet</span>
                                             <span className="text-xs text-gray-400 max-w-sm">
-                                                {searchTerm || filterDate
-                                                    ? 'No invoices match your filter criteria. Try clearing your search or date filter.'
+                                                {searchTerm || filterDate || filterDeliveryStatus !== 'all'
+                                                    ? 'No invoices match your filter criteria.'
                                                     : 'There are currently no recorded sales invoices. Click "+ New Entry" below to create your first invoice.'}
                                             </span>
                                         </div>
@@ -610,6 +662,7 @@ function SalesInvoicesMain() {
                                 const itemizedText = linkedItems.length > 0
                                     ? linkedItems.map((item) => `${item.quantity} ${item.name || item.item_name || 'Item'}`).join(', ')
                                     : '—';
+                                const dStatus = inv.deliveryStatus || 'pending';
 
                                 return (
                                     <tr key={inv.id || inv.siNumber} className="text-center border-b border-gray-200 hover:bg-[#F4F8FB] text-[0.78vw]">
@@ -629,6 +682,16 @@ function SalesInvoicesMain() {
 
                                         <td className="px-3 py-2.5 text-right font-semibold text-[#FF8DCE]">
                                             ₱ {inv.amountTotal ? Number(inv.amountTotal).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
+                                        </td>
+
+                                        {/* Delivery Receipt Status Selector */}
+                                        <td className="px-2 py-2.5">
+                                            <DeliveryReceiptStatusSelector
+                                                initialStatus={dStatus}
+                                                value={dStatus}
+                                                onChange={(newDeliveryStatus) => handleDeliveryStatusUpdate(inv.id || inv.siNumber, newDeliveryStatus)}
+                                                isChargeInvoice={false}
+                                            />
                                         </td>
 
                                         <td className="px-3 py-2.5 text-md">
@@ -683,8 +746,23 @@ function SalesInvoicesMain() {
                     </button>
                 </div>
 
-                {/* Date Filter & Count */}
+                {/* Filters */}
                 <div className="flex gap-4 items-center text-[0.8vw]">
+                    <div className="flex gap-2 items-center">
+                        <label className="text-gray-600 font-medium">Delivery:</label>
+                        <select
+                            value={filterDeliveryStatus}
+                            onChange={(e) => setFilterDeliveryStatus(e.target.value)}
+                            className="px-2.5 py-1 border border-gray-300 rounded-full focus:outline-none text-[0.75vw]"
+                        >
+                            <option value="all">All</option>
+                            <option value="pending">Pending</option>
+                            <option value="completed">Completed</option>
+                            <option value="no_delivery">No Delivery / Pick Up</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+
                     <div className="flex gap-2 items-center">
                         <label className="text-gray-600 font-medium">Date Filter:</label>
                         <input
@@ -725,7 +803,6 @@ function SalesInvoicesMain() {
                         </div>
 
                         <div className="flex flex-col gap-4 text-[0.8vw]">
-                            {/* Mode Toggle */}
                             <div className="flex items-center bg-[#F4F8FB] p-1 rounded-xl border border-gray-200">
                                 <button
                                     type="button"
@@ -832,7 +909,10 @@ function SalesInvoicesMain() {
                         <div className="flex justify-end gap-2 mt-2">
                             <button 
                                 type="button"
-                                onClick={executeSaveInvoice}
+                                onClick={() => {
+                                    setIsCreateAccountPromptOpen(false);
+                                    executeSaveInvoice(false);
+                                }}
                                 className="px-3.5 py-1.5 text-[0.75vw] rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer"
                             >
                                 Save Invoice Only
